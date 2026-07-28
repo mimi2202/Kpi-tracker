@@ -1,0 +1,31 @@
+# render.yaml — place at repo ROOT. Render auto-detects this ("Blueprint").
+databases:
+  - name: kpi-db
+    databaseName: kpi
+    plan: free
+
+services:
+  - type: web
+    name: kpi-backend
+    runtime: python
+    plan: free
+    rootDir: backend            # ADJUST if your Django project isn't in /backend
+    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate"
+    startCommand: "gunicorn config.wsgi:application"   # ADJUST 'config' to your wsgi module dir
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.4"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: kpi-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: WEB_CONCURRENCY
+        value: "2"
+      - key: ALLOWED_HOSTS
+        value: ".onrender.com"
+      - key: CORS_ALLOWED_ORIGINS
+        value: "https://YOUR-APP.vercel.app"    # fill in after Vercel deploy
