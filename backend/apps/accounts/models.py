@@ -165,31 +165,34 @@ class User(AbstractUser, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
         else:
             return Department.objects.filter(user_links__user=self, is_active=True)
 
+    # apps/accounts/models.py  (User model)
+# REPLACE get_visible_kpi_results with this. ADMIN is now bounded to the user's
+# organisation (was KPIResult.objects.all() — a cross-org leak on the dashboard).
+
     def get_visible_kpi_results(self):
-        """KPI results this user can see. ALWAYS returns a QuerySet."""
+        """KPI results this user can see. ALWAYS returns a QuerySet, ALWAYS org-scoped."""
         from apps.results.models import KPIResult
         from apps.organisation.models import UserDepartment
         from django.db.models import Q
- 
-        # Admin: everything.
+
+        base = KPIResult.objects.filter(department__organisation_id=self.organisation_id)
+
+        # Admin: everything in THEIR organisation (not all orgs).
         if self.role == Role.ADMIN:
-            return KPIResult.objects.all()
- 
+            return base
+
         # Team leader: departments they head, plus their own rows.
         if self.role == Role.TEAM_LEADER:
-            head_dept_ids = list(
-                UserDepartment.objects.filter(
-                    user=self, is_department_head=True
-                ).values_list("department_id", flat=True)
-            )
-            return KPIResult.objects.filter(
+            head_dept_ids = UserDepartment.objects.filter(
+                user=self, is_department_head=True
+            ).values_list("department_id", flat=True)
+            return base.filter(
                 Q(department_id__in=head_dept_ids) | Q(responsible_person=self)
             )
- 
-        dept_ids = list(
-            UserDepartment.objects.filter(user=self).values_list("department_id", flat=True)
-        )
-        return KPIResult.objects.filter(
+
+        # Member (or any other role): their department's rows + anything assigned to them.
+        dept_ids = UserDepartment.objects.filter(user=self).values_list("department_id", flat=True)
+        return base.filter(
             Q(department_id__in=dept_ids) | Q(responsible_person=self)
         )
  

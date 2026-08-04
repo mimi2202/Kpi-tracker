@@ -4,16 +4,17 @@ import { useAuthStore } from '../../store/authStore'
 import { apiClient } from '../../api/client'
 import TopBar from './TopBar'
 import Avatar from '../shared/Avatar'
+import {Sparkles} from 'lucide-react'
 import ChatWidget from '../chat/ChatWidget'
 import { LayoutDashboard, CalendarCheck, TrendingUp, Trophy, Library, Building2, Clock, AlertTriangle, FileText, Upload, History, Users, ShieldCheck, ChevronLeft, ChevronRight, LogOut, User, X, Target, ClipboardList } from 'lucide-react'
 
 // `manage: true` items are only shown to ADMIN / TEAM_LEADER.
+// #6 — ordered by importance / frequency of use: what people do daily first
+// (see the dashboard, enter data), then analysis, then setup, then admin.
 const navGroups = [
-  { label: 'Performance', items: [
+  { label: 'Overview', items: [
     { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { to: '/scorecard', label: 'Scorecard', icon: Trophy },
-    { to: '/trends', label: 'Trends', icon: TrendingUp },
-    { to: '/history', label: 'History', icon: History },
   ]},
   { label: 'Data Entry', items: [
     { to: '/weekly', label: 'Weekly', icon: CalendarCheck },
@@ -21,22 +22,29 @@ const navGroups = [
     { to: '/quarterly', label: 'Quarterly', icon: CalendarCheck },
     { to: '/annual', label: 'Annual', icon: CalendarCheck },
   ]},
+  { label: 'Analysis', items: [
+    { to: '/trends', label: 'Trends', icon: TrendingUp },
+    { to: '/history', label: 'History', icon: History },
+    { to: '/actions', label: 'Actions', icon: AlertTriangle },
+    { to: '/reports', label: 'Reports', icon: FileText },
+  ]},
   { label: 'Configure', items: [
     { to: '/kpis', label: 'KPI Library', icon: Library, manage: true },
+     { to: '/presets', label: 'Preset KPIs', icon: Sparkles, manage: true },
     { to: '/assignments', label: 'Assignments', icon: ClipboardList, manage: true },
     { to: '/departments', label: 'Departments', icon: Building2, manage: true },
     { to: '/periods', label: 'Periods', icon: Clock, manage: true },
-  ]},
-  { label: 'Manage', items: [
-    { to: '/actions', label: 'Actions', icon: AlertTriangle },
-    { to: '/reports', label: 'Reports', icon: FileText },
     { to: '/imports', label: 'Import', icon: Upload, manage: true },
   ]},
-  { label: 'System', items: [
+  { label: 'Administration', items: [
     { to: '/users', label: 'Users & Roles', icon: Users, manage: true },
     { to: '/audit', label: 'Audit Trail', icon: ShieldCheck, manage: true },
   ]},
 ]
+
+// #1 — human-readable role label shown alongside a user's title.
+const roleLabel = (role?: string) =>
+  role === 'ADMIN' ? 'Administrator' : role === 'TEAM_LEADER' ? 'Team Leader' : role === 'MEMBER' ? 'Member' : ''
 
 export default function AppLayout() {
   const [collapsed, setCollapsed] = useState(false)
@@ -101,7 +109,7 @@ export default function AppLayout() {
         <div className="border-t border-[hsl(var(--border-subtle))] p-4">
           <button onClick={() => setUserMenuOpen(!userMenuOpen)} className={`flex items-center gap-3 w-full rounded-xl p-2 hover:bg-[hsl(var(--surface-ground))] transition-colors ${collapsed ? 'lg:justify-center' : ''}`}>
             <Avatar src={(user as any)?.avatar} name={user?.full_name || 'User'} size={32} />
-            <div className={`flex-1 text-left overflow-hidden ${collapsed ? '' : ''}`}><p className="text-sm font-medium truncate">{user?.full_name || 'User'}</p><p className="text-xs text-[hsl(var(--text-tertiary))] truncate">{user?.email || ''}</p></div>
+            <div className={`flex-1 text-left overflow-hidden ${collapsed ? '' : ''}`}><p className="text-sm font-medium truncate">{user?.full_name || 'User'}</p><p className="text-xs text-[hsl(var(--text-tertiary))] truncate">{roleLabel(user?.role)}{(user as any)?.display_title ? ` · ${(user as any).display_title}` : ''}</p></div>
           </button>
         </div>
       </aside>

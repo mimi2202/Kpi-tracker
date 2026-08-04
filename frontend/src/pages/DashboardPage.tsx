@@ -1,9 +1,11 @@
 // frontend/src/pages/DashboardPage.tsx
 import { useState, useEffect, useCallback } from 'react'
+import { Link } from 'react-router-dom'
+import { useAuthStore } from '../store/authStore'
 import { dashboardApi, type DashboardSummary, type DepartmentScore, type TrendDataPoint } from '../api/dashboard'
 import { periodsApi, type ReportingPeriod } from '../api/periods'
 import type { KPIResult } from '../types'
-import { Target, CheckCircle2, AlertTriangle, XCircle, TrendingUp, TrendingDown, Minus, Filter, RefreshCw, BarChart3, Layers, Users } from 'lucide-react'
+import { Target, CheckCircle2, AlertTriangle, XCircle, TrendingUp, TrendingDown, Minus, Filter, RefreshCw, BarChart3, Layers, Users, Library, ClipboardList, Building2, Clock, AlertCircle, Plus } from 'lucide-react'
 
 type PeriodType = 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'ANNUAL'
 
@@ -15,6 +17,8 @@ function initials(name: string) {
 }
 
 export default function DashboardPage() {
+  const currentUser = useAuthStore((s) => s.user)
+  const canManage = currentUser?.role === 'ADMIN' || currentUser?.role === 'TEAM_LEADER'
   const [periodType, setPeriodType] = useState<PeriodType>('MONTHLY')
   const [selectedPeriodId, setSelectedPeriodId] = useState('')
   const [selectedDeptId, setSelectedDeptId] = useState('')
@@ -92,7 +96,44 @@ export default function DashboardPage() {
     },
   ]
 
+  // #2 — simple overview metrics (counts an admin wants at a glance).
+  const totalKpis = kpis.length
+  const deptCount = departments.length
+  const memberCount = departments.reduce((n, d: any) => n + ((d.team_members?.length) || 0), 0)
+  const withData = kpis.filter((k: any) => k.actual_value != null).length
+  const pctComplete = totalKpis > 0 ? Math.round((withData / totalKpis) * 100) : 0
+  const overview = [
+    { label: 'Total KPIs', value: totalKpis, icon: BarChart3 },
+    { label: 'Departments', value: deptCount, icon: Layers },
+    { label: 'Team Members', value: memberCount, icon: Users },
+    { label: '% Reported', value: `${pctComplete}%`, icon: CheckCircle2 },
+  ]
+
+  // #3 — quick links to important pages (role-gated).
+  const quickLinks = [
+    { to: '/kpis', label: 'Add KPI', icon: Library, manage: true },
+    { to: '/assignments', label: 'Assignments', icon: ClipboardList, manage: true },
+    { to: '/departments', label: 'Departments', icon: Building2, manage: true },
+    { to: '/periods', label: 'Periods', icon: Clock, manage: true },
+    { to: '/actions', label: 'Actions', icon: AlertCircle, manage: false },
+    { to: '/weekly', label: 'Enter Data', icon: Plus, manage: false },
+  ].filter(l => !l.manage || canManage)
+
   const currentPeriod = periods.find(p => p.id === selectedPeriodId)
+
+  // Trend preview: average achievement per period, in chronological order.
+  const trendPoints = (() => {
+    const byPeriod: Record<string, { sum: number; n: number }> = {}
+    const order: string[] = []
+    for (const t of trends as any[]) {
+      const label = t.period_label || ''
+      if (t.achievement == null) continue
+      if (!byPeriod[label]) { byPeriod[label] = { sum: 0, n: 0 }; order.push(label) }
+      byPeriod[label].sum += t.achievement
+      byPeriod[label].n += 1
+    }
+    return order.map(label => ({ label, value: byPeriod[label].sum / byPeriod[label].n }))
+  })()
 
   const getRAGClass = (status: string) => {
     if (status === 'ON_TRACK') return 'on-track'
@@ -145,11 +186,51 @@ export default function DashboardPage() {
           {periods.length === 0 && <option value="">No open periods</option>}
           {periods.map(p => <option key={p.id} value={p.id}>{p.period_label}</option>)}
         </select>
+        {/* #4 — explicit department filter dropdown */}
+        <div className="flex items-center gap-1.5">
+          <Filter className="h-3.5 w-3.5 text-[hsl(var(--text-tertiary))]" />
+          <select
+            value={selectedDeptId}
+            onChange={(e) => setSelectedDeptId(e.target.value)}
+            className="input-field w-48"
+          >
+            <option value="">All departments</option>
+            {departments.map((d: any) => (
+              <option key={d.id} value={d.id}>{d.department_name || d.department?.name || 'Unknown'}</option>
+            ))}
+          </select>
+        </div>
         {selectedDeptId && (
           <button onClick={() => setSelectedDeptId('')} className="text-xs text-[hsl(var(--accent))] hover:underline">
             × Clear filter
           </button>
         )}
+      </div>
+
+      {/* === #2 OVERVIEW METRICS + #3 QUICK LINKS === */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {overview.map(m => (
+            <div key={m.label} className="card p-4">
+              <div className="flex items-center gap-1.5 text-[hsl(var(--text-tertiary))] mb-1">
+                <m.icon className="h-3.5 w-3.5" />
+                <span className="text-[11px] font-semibold uppercase tracking-wider">{m.label}</span>
+              </div>
+              <p className="text-2xl font-bold text-[hsl(var(--text-primary))]">{m.value}</p>
+            </div>
+          ))}
+        </div>
+        <div className="card p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))] mb-2">Quick actions</p>
+          <div className="grid grid-cols-2 gap-2">
+            {quickLinks.map(l => (
+              <Link key={l.to} to={l.to} className="flex items-center gap-2 rounded-lg border border-[hsl(var(--border-subtle))] px-3 py-2 text-sm text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--surface-ground))] transition-colors">
+                <l.icon className="h-4 w-4 flex-shrink-0" />
+                <span className="truncate">{l.label}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* === LOADING SKELETON === */}
@@ -299,6 +380,63 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
+
+          {/* === TREND PREVIEW (click → Trends page) === */}
+          <Link to="/trends" className="card p-5 block hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-[hsl(var(--text-tertiary))]" />
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
+                  Achievement Trend
+                </h2>
+              </div>
+              <span className="text-xs text-[hsl(var(--accent))]">View details →</span>
+            </div>
+            {trendPoints.length < 2 ? (
+              <p className="text-sm text-[hsl(var(--text-tertiary))] py-6 text-center">
+                Not enough data yet — trends appear once you have results across multiple periods.
+              </p>
+            ) : (
+              (() => {
+                const w = 640, h = 90, pad = 6
+                const vals = trendPoints.map(p => p.value)
+                const min = Math.min(...vals, 0)
+                const max = Math.max(...vals, 100)
+                const range = max - min || 1
+                const step = (w - pad * 2) / (trendPoints.length - 1)
+                const pts = trendPoints.map((p, i) => {
+                  const x = pad + i * step
+                  const y = pad + (h - pad * 2) * (1 - (p.value - min) / range)
+                  return [x, y] as const
+                })
+                const line = pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ')
+                const area = `${line} L${pts[pts.length - 1][0].toFixed(1)},${h - pad} L${pts[0][0].toFixed(1)},${h - pad} Z`
+                const last = trendPoints[trendPoints.length - 1].value
+                const first = trendPoints[0].value
+                const up = last >= first
+                const stroke = up ? 'hsl(var(--status-on-track))' : 'hsl(var(--status-off-track))'
+                return (
+                  <div>
+                    <div className="flex items-baseline gap-2 mb-2">
+                      <span className="text-2xl font-bold">{last.toFixed(1)}%</span>
+                      <span className={`text-xs font-medium ${up ? 'text-emerald-600' : 'text-red-600'}`}>
+                        {up ? '▲' : '▼'} {Math.abs(last - first).toFixed(1)}% vs first period
+                      </span>
+                    </div>
+                    <svg viewBox={`0 0 ${w} ${h}`} className="w-full" style={{ height: 90 }} preserveAspectRatio="none">
+                      <path d={area} fill={stroke} opacity="0.08" />
+                      <path d={line} fill="none" stroke={stroke} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                      {pts.map(([x, y], i) => <circle key={i} cx={x} cy={y} r="2.5" fill={stroke} />)}
+                    </svg>
+                    <div className="flex justify-between mt-1 text-[10px] text-[hsl(var(--text-tertiary))]">
+                      <span>{trendPoints[0].label}</span>
+                      <span>{trendPoints[trendPoints.length - 1].label}</span>
+                    </div>
+                  </div>
+                )
+              })()
+            )}
+          </Link>
 
           <div className="card overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-[hsl(var(--border-subtle))]">

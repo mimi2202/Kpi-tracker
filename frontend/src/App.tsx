@@ -23,6 +23,7 @@ import SettingsPage from './pages/SettingsPage'
 import ReportsPage from './pages/ReportsPage'
 import ChatJoinPage from './pages/ChatJoinPage'
 import { useAuthStore } from './store/authStore'
+import PresetsPage from './pages/PresetsPage'   
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -61,6 +62,7 @@ export default function App() {
         <Route path="scorecard" element={<ScorecardPage />} />
         <Route path="kpis" element={<KPIsPage />} />
         <Route path="assignments" element={<AssignmentsPage />} />
+        <Route path="presets" element={<PresetsPage />} />
         <Route path="departments" element={<DepartmentsPage />} />
         <Route path="periods" element={<PeriodsPage />} />
         <Route path="users" element={<UsersPage />} />

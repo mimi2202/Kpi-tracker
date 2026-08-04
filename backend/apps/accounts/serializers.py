@@ -128,6 +128,14 @@ class UserCreateSerializer(serializers.ModelSerializer):
         user.set_password(password)
         user.save()
         return user
+    
+    def validate_organisation_name(self, value):   # adjust field name to your serializer
+        from apps.accounts.models import Organisation  # adjust import
+        if Organisation.objects.filter(name__iexact=value).exists():
+            raise serializers.ValidationError(
+                "An organisation with this name already exists. Please choose another, or sign in instead."
+            )
+        return value
 
 
 class TeamMemberSerializer(serializers.ModelSerializer):

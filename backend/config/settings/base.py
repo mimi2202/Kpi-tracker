@@ -111,10 +111,27 @@ CLOUDINARY_STORAGE = {
     "API_KEY": os.environ.get("CLOUDINARY_API_KEY", ""),
     "API_SECRET": os.environ.get("CLOUDINARY_API_SECRET", ""),
 }
-DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
+
+_cloud = CLOUDINARY_STORAGE["CLOUD_NAME"]
+_key = CLOUDINARY_STORAGE["API_KEY"]
+_secret = CLOUDINARY_STORAGE["API_SECRET"]
+
+# Treat obvious placeholders as "not configured".
+_placeholders = {"", "your-cloud-name", "your-key", "your-secret"}
+_configured = (
+    _cloud not in _placeholders
+    and _key not in _placeholders
+    and _secret not in _placeholders
+)
+
+if _configured:
+    DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
+else:
+    MEDIA_URL = "/media/"
+    MEDIA_ROOT = BASE_DIR / "media"
+    DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"   # note: NO trailing space
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-
 CORS_ALLOWED_ORIGINS = os.environ.get(
     "CORS_ALLOWED_ORIGINS",
     "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174",

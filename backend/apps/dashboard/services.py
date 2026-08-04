@@ -1,4 +1,4 @@
-﻿"""Dashboard aggregation service - RBAC with team breakdown."""
+﻿"""Dashboard aggregation service - RBAC with team breakdown. Org-scoped."""
 from decimal import Decimal
 from django.db.models import Avg, Count, Q
 from apps.results.models import KPIResult
@@ -14,6 +14,19 @@ class DashboardService:
         self.department_id = department_id
         self.period_id = period_id
         self.user = user
+
+    # ---- org-scoped department set (the fix for cross-org leak) ----
+    def _get_departments(self):
+        """Departments this user may see — ALWAYS bounded to their organisation."""
+        qs = Department.objects.filter(is_active=True)
+        if self.user is not None:
+            # Bound to the user's org no matter their role (admins included).
+            qs = qs.filter(organisation_id=self.user.organisation_id)
+            if self.user.role != Role.ADMIN:
+                # Non-admins further restricted to departments they can see.
+                visible_ids = self.user.get_visible_departments().values_list("id", flat=True)
+                qs = qs.filter(id__in=visible_ids)
+        return qs
 
     def get_summary(self):
         results = self._get_results()
@@ -37,9 +50,7 @@ class DashboardService:
         }
 
     def get_department_performance(self):
-        departments = Department.objects.filter(is_active=True)
-        if self.user and self.user.role != Role.ADMIN:
-            departments = self.user.get_visible_departments()
+        departments = self._get_departments()
         data = []
         for dept in departments:
             results = self._get_results().filter(department=dept)
@@ -97,7 +108,6 @@ class DashboardService:
                 "at_risk": results.filter(rag_status="AT_RISK").count(),
                 "off_track": results.filter(rag_status="OFF_TRACK").count(),
             })
-        # Team leader achievement = average of their members
         for m in members:
             if m["role"] == "Team Leader":
                 member_scores = [x["achievement"] for x in members if x["role"] == "Member" and x["achievement"] is not None]
@@ -130,6 +140,7 @@ class DashboardService:
                 "department": str(r.department_id), "department_name": r.department.name,
                 "period": str(r.reporting_period_id), "period_label": r.period_label,
                 "target_snapshot": float(r.target_value) if r.target_value else 0,
+                "target_value": float(r.target_value) if r.target_value else 0,
                 "actual_value": float(r.actual_value) if r.actual_value is not None else None,
                 "achievement_percentage": float(r.achievement_percentage) if r.achievement_percentage else None,
                 "variance_display": r.variance_display or "",
@@ -144,9 +155,7 @@ class DashboardService:
         return data
 
     def get_scorecard(self):
-        departments = Department.objects.filter(is_active=True)
-        if self.user and self.user.role != Role.ADMIN:
-            departments = self.user.get_visible_departments()
+        departments = self._get_departments()
         data = []
         for dept in departments:
             freq_scores = {}
@@ -179,10 +188,15 @@ class DashboardService:
         return data
 
     def _get_results(self):
-        if self.user:
+        # Org-scoped base queryset. Never fall back to KPIResult.objects.all()
+        # for an anonymous/missing user — return nothing rather than leak.
+        if self.user is not None:
             results = self.user.get_visible_kpi_results()
+            # Belt-and-suspenders: hard-bound to the user's org even if
+            # get_visible_kpi_results is ever too broad.
+            results = results.filter(department__organisation_id=self.user.organisation_id)
         else:
-            results = KPIResult.objects.all()
+            results = KPIResult.objects.none()
         if self.period_id:
             results = results.filter(reporting_period_id=self.period_id)
         elif self.period_type:

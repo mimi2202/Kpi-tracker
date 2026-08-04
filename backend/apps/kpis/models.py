@@ -227,3 +227,76 @@ class KPIAssignment(UUIDPrimaryKeyMixin, TimestampMixin):
  
     def __str__(self):
         return f"{self.kpi.code} -> {self.user.full_name}"
+
+class KPIPresetCategory(UUIDPrimaryKeyMixin, TimestampMixin):
+    """A grouping of preset KPIs (e.g. Sales, Support, Operations, General).
+    Org-scoped so each organisation curates its own catalogue."""
+    organisation = models.ForeignKey(
+    "accounts.Organisation",
+    on_delete=models.CASCADE,
+    related_name="kpi_preset_categories",
+)
+    name = models.CharField(max_length=120)
+    description = models.CharField(max_length=300, blank=True)
+    icon = models.CharField(max_length=40, blank=True, help_text="lucide icon name, optional")
+    display_order = models.IntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+ 
+    class Meta:
+        db_table = "kpi_preset_categories"
+        ordering = ["display_order", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organisation", "name"],
+                name="unique_org_preset_category_name",
+            ),
+        ]
+ 
+    def __str__(self):
+        return self.name
+ 
+ 
+class KPIPreset(UUIDPrimaryKeyMixin, TimestampMixin):
+    """A reusable KPI template. Cloned into a real KPI when applied to a department."""
+    organisation = models.ForeignKey(
+    "accounts.Organisation",
+    on_delete=models.CASCADE,
+    related_name="kpi_presets",
+)
+    category = models.ForeignKey(
+        KPIPresetCategory,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="presets",
+    )
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+ 
+    # KPI definition fields — mirror your KPI model so cloning is 1:1.
+    # VERIFY these names/choices against your actual KPI model and adjust.
+    target_value = models.DecimalField(max_digits=15, decimal_places=4, default=0)
+    unit = models.CharField(max_length=40, blank=True, help_text="e.g. %, hrs, count, $")
+    calculation_direction = models.CharField(
+        max_length=20,
+        default="HIGHER_BETTER",
+        help_text="HIGHER_BETTER / LOWER_BETTER / etc — match your KPI choices",
+    )
+    reporting_frequency = models.CharField(
+        max_length=20,
+        default="MONTHLY",
+        help_text="WEEKLY / MONTHLY / QUARTERLY / ANNUAL",
+    )
+    warning_threshold = models.DecimalField(max_digits=6, decimal_places=4, default=0.85)
+ 
+    is_active = models.BooleanField(default=True)
+ 
+    class Meta:
+        db_table = "kpi_presets"
+        ordering = ["category__display_order", "name"]
+        indexes = [
+            models.Index(fields=["organisation", "is_active"]),
+            models.Index(fields=["category"]),
+        ]
+ 
+    def __str__(self):
+        return self.name

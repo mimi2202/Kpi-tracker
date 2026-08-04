@@ -1,108 +1,223 @@
-import { useState, useEffect, useMemo } from 'react'
-import { dashboardApi, type TrendDataPoint } from '../api/dashboard'
+// frontend/src/pages/TrendsPage.tsx
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { dashboardApi } from '../api/dashboard'
 import { periodsApi, type ReportingPeriod } from '../api/periods'
-import { departmentsApi } from '../api/departments'
-import type { Department } from '../types'
-import { RefreshCw, BarChart3 } from 'lucide-react'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, Area, ComposedChart } from 'recharts'
+import {
+  ResponsiveContainer, AreaChart, Area, LineChart, Line,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine,
+} from 'recharts'
+import { TrendingUp, RefreshCw, Layers } from 'lucide-react'
 
 type PeriodType = 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'ANNUAL'
 
-export default function TrendsPage() {
-  const [periodType, setPeriodType] = useState<PeriodType>('WEEKLY')
-  const [trends, setTrends] = useState<TrendDataPoint[]>([])
-  const [periods, setPeriods] = useState<ReportingPeriod[]>([])
-  const [departments, setDepartments] = useState<Department[]>([])
-  const [loading, setLoading] = useState(true)
-  const [selectedDepts, setSelectedDepts] = useState<string[]>([])
-  const [selectedPeriodId, setSelectedPeriodId] = useState('')
+interface TrendRow {
+  period_label: string
+  achievement: number | null
+  target: number
+  department_name: string
+  department_colour: string
+}
 
-  useEffect(() => {
-    Promise.all([
-      periodsApi.list({ period_type: periodType, page_size: 50 }),
-      departmentsApi.list({ page_size: 100 }),
-    ]).then(([pRes, dRes]) => {
-      setPeriods(pRes.data.results)
-      setDepartments(dRes.data.results)
-      if (pRes.data.results.length > 0) setSelectedPeriodId(pRes.data.results[0].id)
-    }).catch(console.error)
+// A fallback palette if the backend doesn't supply a colour.
+const FALLBACK = ['#4f46e5', '#059669', '#d97706', '#dc2626', '#7c3aed', '#0891b2', '#db2777', '#65a30d']
+
+export default function TrendsPage() {
+  const [periodType, setPeriodType] = useState<PeriodType>('MONTHLY')
+  const [rows, setRows] = useState<TrendRow[]>([])
+  const [periods, setPeriods] = useState<ReportingPeriod[]>([])
+  const [loading, setLoading] = useState(true)
+  const [mode, setMode] = useState<'area' | 'line'>('area')
+  const [hidden, setHidden] = useState<Set<string>>(new Set())
+
+  const fetchTrends = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [trendRes] = await Promise.all([
+        dashboardApi.getTrends({ period_type: periodType }),
+      ])
+      const data = Array.isArray(trendRes.data) ? trendRes.data : (trendRes.data?.results || [])
+      setRows(data)
+    } catch (err) { console.error(err) }
+    finally { setLoading(false) }
   }, [periodType])
 
   useEffect(() => {
-    if (!selectedPeriodId) return
-    setLoading(true)
-    dashboardApi.getTrends({ period_type: periodType })
-      .then(res => setTrends(Array.isArray(res.data) ? res.data : []))
-      .catch(console.error)
-      .finally(() => setLoading(false))
-  }, [periodType, selectedPeriodId])
+    periodsApi.list({ period_type: periodType, page_size: 50 })
+      .then(r => setPeriods(r.data.results || []))
+      .catch(() => {})
+    fetchTrends()
+  }, [periodType, fetchTrends])
 
-  const chartData = useMemo(() => {
-    if (!trends.length) return []
-    const labels = [...new Set(trends.map(t => t.period_label))]
-    const deptNames = [...new Set(trends.map(t => t.department_name))]
-    return labels.map(label => {
-      const row: any = { period: label }
-      deptNames.forEach(name => {
-        const point = trends.find(t => t.period_label === label && t.department_name === name)
-        row[name] = point?.achievement ?? null
-      })
+  // Pivot rows [{period_label, department_name, achievement}] into recharts shape:
+  // [{ period: 'Week 1', HR: 92, Finance: 78 }, ...] with one key per department.
+  const { chartData, departments, colours } = useMemo(() => {
+    const periodOrder: string[] = []
+    const byPeriod: Record<string, Record<string, number[]>> = {}
+    const deptSet = new Set<string>()
+    const colourMap: Record<string, string> = {}
+
+    for (const r of rows) {
+      const period = r.period_label || '—'
+      const dept = r.department_name || 'Unknown'
+      deptSet.add(dept)
+      if (r.department_colour) colourMap[dept] = r.department_colour
+      if (!byPeriod[period]) { byPeriod[period] = {}; periodOrder.push(period) }
+      if (r.achievement != null) {
+        (byPeriod[period][dept] ||= []).push(r.achievement)
+      }
+    }
+
+    const depts = Array.from(deptSet)
+    depts.forEach((d, i) => { if (!colourMap[d]) colourMap[d] = FALLBACK[i % FALLBACK.length] })
+
+    const data = periodOrder.map(period => {
+      const row: Record<string, any> = { period }
+      for (const d of depts) {
+        const vals = byPeriod[period][d]
+        row[d] = vals && vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10 : null
+      }
       return row
     })
-  }, [trends])
 
-  const deptNames = useMemo(() => [...new Set(trends.map(t => t.department_name))], [trends])
-  const deptColors: Record<string, string> = {}
-  trends.forEach(t => { if (!deptColors[t.department_name]) deptColors[t.department_name] = t.department_colour || '#6B7280' })
+    return { chartData: data, departments: depts, colours: colourMap }
+  }, [rows])
 
-  const filteredDeptNames = selectedDepts.length > 0 ? deptNames.filter(d => selectedDepts.includes(d)) : deptNames
-  const toggleDept = (name: string) => setSelectedDepts(prev => prev.includes(name) ? prev.filter(d => d !== name) : [...prev, name])
+  const toggleDept = (d: string) => {
+    setHidden(prev => {
+      const next = new Set(prev)
+      next.has(d) ? next.delete(d) : next.add(d)
+      return next
+    })
+  }
+
+  const periodTypes: { value: PeriodType; label: string }[] = [
+    { value: 'WEEKLY', label: 'Weekly' },
+    { value: 'MONTHLY', label: 'Monthly' },
+    { value: 'QUARTERLY', label: 'Quarterly' },
+    { value: 'ANNUAL', label: 'Annual' },
+  ]
+
+  const visibleDepts = departments.filter(d => !hidden.has(d))
+  const enoughData = chartData.length >= 2 && departments.length > 0
+
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (!active || !payload?.length) return null
+    return (
+      <div style={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: 10, padding: '10px 12px', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}>
+        <p style={{ fontSize: 12, fontWeight: 600, margin: '0 0 6px' }}>{label}</p>
+        {payload
+          .filter((p: any) => p.value != null)
+          .sort((a: any, b: any) => b.value - a.value)
+          .map((p: any) => (
+            <div key={p.dataKey} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, margin: '2px 0' }}>
+              <span style={{ width: 8, height: 8, borderRadius: 4, background: p.color, flexShrink: 0 }} />
+              <span style={{ color: '#374151' }}>{p.dataKey}</span>
+              <span style={{ marginLeft: 'auto', fontWeight: 600 }}>{p.value}%</span>
+            </div>
+          ))}
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6 animate-fade-in-up">
-      <div className="flex items-center justify-between">
-        <div><h1 className="text-2xl font-bold tracking-tight">Performance Trends</h1><p className="text-sm text-[hsl(var(--text-tertiary))] mt-0.5">Visual trend analysis</p></div>
-        <button onClick={() => window.location.reload()} className="btn btn-ghost text-sm"><RefreshCw className="h-4 w-4" /> Refresh</button>
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-[hsl(var(--text-primary))]">Performance Trends</h1>
+          <p className="text-sm text-[hsl(var(--text-tertiary))] mt-0.5">Achievement over time by department</p>
+        </div>
+        <button onClick={fetchTrends} className="btn btn-ghost text-sm" disabled={loading}>
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
+        </button>
       </div>
-      <div className="card p-4 flex flex-wrap items-center gap-4">
+
+      {/* Controls */}
+      <div className="card p-1.5 flex flex-wrap items-center gap-3">
         <div className="tab-bar">
-          {(['WEEKLY','MONTHLY','QUARTERLY','ANNUAL'] as PeriodType[]).map(pt => (
-            <button key={pt} onClick={() => setPeriodType(pt)} className={`tab-item ${periodType === pt ? 'active' : ''}`}>{pt.charAt(0)+pt.slice(1).toLowerCase()}</button>
+          {periodTypes.map(pt => (
+            <button key={pt.value} onClick={() => setPeriodType(pt.value)} className={`tab-item ${periodType === pt.value ? 'active' : ''}`}>
+              {pt.label}
+            </button>
           ))}
         </div>
-        <select value={selectedPeriodId} onChange={(e) => setSelectedPeriodId(e.target.value)} className="input-field w-52">
-          {periods.map(p => <option key={p.id} value={p.id}>{p.period_label}</option>)}
-        </select>
-        <div className="flex flex-wrap gap-2">
-          {deptNames.map(name => (
-            <button key={name} onClick={() => toggleDept(name)} className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all ${selectedDepts.length === 0 || selectedDepts.includes(name) ? 'bg-[hsl(var(--accent))] text-white' : 'bg-[hsl(var(--surface-ground))] text-[hsl(var(--text-tertiary))]'}`}>{name}</button>
-          ))}
+        <div className="flex items-center gap-1 ml-auto">
+          <button onClick={() => setMode('area')} className={`tab-item ${mode === 'area' ? 'active' : ''}`}>Area</button>
+          <button onClick={() => setMode('line')} className={`tab-item ${mode === 'line' ? 'active' : ''}`}>Line</button>
         </div>
       </div>
-      {loading ? (
-        <div className="card p-12 text-center"><div className="animate-shimmer h-4 w-32 rounded mx-auto" /></div>
-      ) : chartData.length === 0 ? (
-        <div className="card p-12 text-center"><BarChart3 className="h-12 w-12 mx-auto mb-3 text-[hsl(var(--text-disabled))]" /><p className="text-[hsl(var(--text-tertiary))]">No trend data. Enter KPI results first.</p></div>
-      ) : (
-        <div className="card p-6">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))] mb-6">Achievement Trend � {periodType.toLowerCase()}</h2>
-          <ResponsiveContainer width="100%" height={400}>
-            <ComposedChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-              <defs>{filteredDeptNames.map(name => <linearGradient key={name} id={`g-${name}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={deptColors[name]} stopOpacity={0.2}/><stop offset="100%" stopColor={deptColors[name]} stopOpacity={0}/></linearGradient>)}</defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border-subtle))" />
-              <XAxis dataKey="period" tick={{fontSize:12,fill:'hsl(var(--text-tertiary))'}} tickLine={false} axisLine={{stroke:'hsl(var(--border-subtle))'}} />
-              <YAxis domain={[0,100]} tick={{fontSize:12,fill:'hsl(var(--text-tertiary))'}} tickLine={false} axisLine={false} tickFormatter={v=>`${v}%`} />
-              <Tooltip contentStyle={{background:'white',border:'1px solid #e5e7eb',borderRadius:'12px',fontSize:'13px',boxShadow:'0 8px 24px rgba(0,0,0,0.08)'}} formatter={(v:number)=>[`${v?.toFixed(1)}%`]} />
-              <Legend wrapperStyle={{fontSize:'12px',paddingTop:'16px'}} />
-              <ReferenceLine y={85} stroke="hsl(var(--status-at-risk))" strokeDasharray="4 4" strokeOpacity={0.4} />
-              {filteredDeptNames.map(name => <Area key={`a-${name}`} type="monotone" dataKey={name} fill={`url(#g-${name})`} stroke="none" />)}
-              {filteredDeptNames.map(name => <Line key={`l-${name}`} type="monotone" dataKey={name} stroke={deptColors[name]} strokeWidth={2.5} dot={{r:4,strokeWidth:2,fill:'white'}} activeDot={{r:7}} connectNulls={false} />)}
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
-      )}
+
+      {/* Chart */}
+      <div className="card p-5">
+        {loading ? (
+          <div className="h-[380px] flex items-center justify-center text-[hsl(var(--text-tertiary))]">Loading…</div>
+        ) : !enoughData ? (
+          <div className="h-[380px] flex flex-col items-center justify-center text-center">
+            <TrendingUp className="h-10 w-10 text-[hsl(var(--text-disabled))] mb-3" />
+            <p className="text-[hsl(var(--text-secondary))] font-medium">Not enough data to show a trend</p>
+            <p className="text-sm text-[hsl(var(--text-tertiary))] mt-1 max-w-sm">
+              Trends need results across at least two {periodType.toLowerCase()} periods. Enter data for more periods and they'll appear here.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 mb-4">
+              <Layers className="h-4 w-4 text-[hsl(var(--text-tertiary))]" />
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">Achievement %</h2>
+            </div>
+            <ResponsiveContainer width="100%" height={380}>
+              {mode === 'area' ? (
+                <AreaChart data={chartData} margin={{ top: 8, right: 12, bottom: 4, left: -8 }}>
+                  <defs>
+                    {visibleDepts.map(d => (
+                      <linearGradient key={d} id={`grad-${d.replace(/\s/g, '')}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={colours[d]} stopOpacity={0.28} />
+                        <stop offset="100%" stopColor={colours[d]} stopOpacity={0.02} />
+                      </linearGradient>
+                    ))}
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#eef0f2" vertical={false} />
+                  <XAxis dataKey="period" tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                  <YAxis domain={[0, 'dataMax + 10']} tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} unit="%" />
+                  <Tooltip content={<CustomTooltip />} />
+                  <ReferenceLine y={85} stroke="#059669" strokeDasharray="4 4" strokeOpacity={0.5} label={{ value: 'Target 85%', fontSize: 10, fill: '#059669', position: 'right' }} />
+                  {visibleDepts.map(d => (
+                    <Area key={d} type="monotone" dataKey={d} stroke={colours[d]} strokeWidth={2.5}
+                      fill={`url(#grad-${d.replace(/\s/g, '')})`} connectNulls dot={{ r: 2.5, fill: colours[d] }} activeDot={{ r: 5 }} />
+                  ))}
+                </AreaChart>
+              ) : (
+                <LineChart data={chartData} margin={{ top: 8, right: 12, bottom: 4, left: -8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#eef0f2" vertical={false} />
+                  <XAxis dataKey="period" tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                  <YAxis domain={[0, 'dataMax + 10']} tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} unit="%" />
+                  <Tooltip content={<CustomTooltip />} />
+                  <ReferenceLine y={85} stroke="#059669" strokeDasharray="4 4" strokeOpacity={0.5} label={{ value: 'Target 85%', fontSize: 10, fill: '#059669', position: 'right' }} />
+                  {visibleDepts.map(d => (
+                    <Line key={d} type="monotone" dataKey={d} stroke={colours[d]} strokeWidth={2.5}
+                      connectNulls dot={{ r: 2.5, fill: colours[d] }} activeDot={{ r: 5 }} />
+                  ))}
+                </LineChart>
+              )}
+            </ResponsiveContainer>
+
+            {/* Department toggles (click to show/hide a line) */}
+            <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-[hsl(var(--border-subtle))]">
+              {departments.map(d => {
+                const off = hidden.has(d)
+                return (
+                  <button key={d} onClick={() => toggleDept(d)}
+                    className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors"
+                    style={{ borderColor: off ? '#e5e7eb' : colours[d], background: off ? 'white' : `${colours[d]}12`, color: off ? '#9ca3af' : '#374151' }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 4, background: off ? '#d1d5db' : colours[d] }} />
+                    {d}
+                  </button>
+                )
+              })}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }
-
-
