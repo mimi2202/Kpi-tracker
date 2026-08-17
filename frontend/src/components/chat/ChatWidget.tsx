@@ -212,14 +212,14 @@ export default function ChatWidget() {
 
   return (
     <>
-      <div style={{ position: 'fixed', bottom: 24, right: 24, width: 520, height: minimized ? 48 : 540, backgroundColor: 'white', borderRadius: 16, boxShadow: '0 8px 40px rgba(0,0,0,0.12)', display: 'flex', zIndex: 50, overflow: 'hidden', transition: 'height 0.3s' }}>
+      <div style={{ position: 'fixed', bottom: 24, right: 24, width: 520, height: minimized ? 48 : 540, backgroundColor: 'hsl(var(--surface-card))', borderRadius: 16, boxShadow: '0 8px 40px rgba(0,0,0,0.25)', display: 'flex', zIndex: 50, overflow: 'hidden', transition: 'height 0.3s' }}>
         {/* Room list */}
-        <div style={{ width: 160, backgroundColor: '#f9fafb', borderRight: '1px solid #f3f4f6', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-          <div style={{ padding: '10px 8px', borderBottom: '1px solid #f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>Chats</span>
+        <div style={{ width: 160, backgroundColor: 'hsl(var(--surface-ground))', borderRight: '1px solid hsl(var(--border-subtle))', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+          <div style={{ padding: '10px 8px', borderBottom: '1px solid hsl(var(--border-subtle))', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'hsl(var(--text-tertiary))', textTransform: 'uppercase' }}>Chats</span>
             <div style={{ display: 'flex', gap: 2 }}>
-              <button onClick={openCreate} style={{ padding: 3, borderRadius: 6, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: '#6b7280' }} title="New Group"><Plus size={14} /></button>
-              <button onClick={openDM} style={{ padding: 3, borderRadius: 6, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: '#6b7280' }} title="Direct Message"><UserPlus size={14} /></button>
+              <button onClick={openCreate} style={{ padding: 3, borderRadius: 6, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: 'hsl(var(--text-secondary))' }} title="New Group"><Plus size={14} /></button>
+              <button onClick={openDM} style={{ padding: 3, borderRadius: 6, border: 'none', cursor: 'pointer', backgroundColor: 'transparent', color: 'hsl(var(--text-secondary))' }} title="Direct Message"><UserPlus size={14} /></button>
             </div>
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -227,13 +227,13 @@ export default function ChatWidget() {
               const isActive = activeRoom?.id === room.id
               const unread = room.unread_count || 0
               return (
-                <button key={room.id} onClick={() => setActiveRoom(room)} style={{ width: '100%', textAlign: 'left', padding: '8px 10px', border: 'none', cursor: 'pointer', backgroundColor: isActive ? '#e0e7ff' : 'transparent', color: isActive ? '#4f46e5' : '#374151', borderLeft: isActive ? '3px solid #4f46e5' : '3px solid transparent', transition: 'all 0.15s', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                <button key={room.id} onClick={() => setActiveRoom(room)} style={{ width: '100%', textAlign: 'left', padding: '8px 10px', border: 'none', cursor: 'pointer', backgroundColor: isActive ? 'hsl(var(--accent-light))' : 'transparent', color: isActive ? '#4f46e5' : 'hsl(var(--text-secondary))', borderLeft: isActive ? '3px solid #4f46e5' : '3px solid transparent', transition: 'all 0.15s', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
                   <div style={{ overflow: 'hidden' }}>
                     <div style={{ fontWeight: room.has_unread && !isActive ? 700 : 600, fontSize: 12, marginBottom: 1, display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {room.has_unread && !isActive && <span style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: '#ef4444', flexShrink: 0 }} />}
                       {room.is_direct ? room.name?.replace('DM: ', '') : room.name}
                     </div>
-                    <div style={{ fontSize: 10, color: '#9ca3af' }}>{room.is_private ? 'Private' : (room.department_name || 'Direct')}</div>
+                    <div style={{ fontSize: 10, color: 'hsl(var(--text-tertiary))' }}>{room.is_private ? 'Private' : (room.department_name || 'Direct')}</div>
                   </div>
                   {unread > 0 && !isActive && <span style={{ minWidth: 18, height: 18, borderRadius: 9, backgroundColor: '#ef4444', color: 'white', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px', flexShrink: 0 }}>{unread > 9 ? '9+' : unread}</span>}
                 </button>
@@ -243,7 +243,7 @@ export default function ChatWidget() {
         </div>
 
         {/* Chat area */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, backgroundColor: 'hsl(var(--surface-card))' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', backgroundColor: '#4f46e5', color: 'white' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}><MessageCircle size={16} /><span style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeRoom?.name || 'Chat'}</span></div>
             <div style={{ display: 'flex', gap: 2 }}>
@@ -256,7 +256,7 @@ export default function ChatWidget() {
           {!minimized && (
             <>
               <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {messages.length === 0 && <p style={{ textAlign: 'center', color: '#9ca3af', fontSize: 13, marginTop: 40 }}>No messages yet.</p>}
+                {messages.length === 0 && <p style={{ textAlign: 'center', color: 'hsl(var(--text-tertiary))', fontSize: 13, marginTop: 40 }}>No messages yet.</p>}
                 {messages.map((msg) => {
                   const isMe = msg.sender_id === currentUserId
                   return (
@@ -265,21 +265,21 @@ export default function ChatWidget() {
                       <div style={{ maxWidth: '70%', display: 'flex', flexDirection: 'column', alignItems: isMe ? 'flex-end' : 'flex-start' }}>
                         {/* reply preview banner */}
                         {msg.reply_preview && (
-                          <div style={{ fontSize: 11, color: '#6b7280', borderLeft: '2px solid #c7d2fe', paddingLeft: 6, marginBottom: 2, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <div style={{ fontSize: 11, color: 'hsl(var(--text-secondary))', borderLeft: '2px solid hsl(var(--accent) / 0.4)', paddingLeft: 6, marginBottom: 2, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             <b>{msg.reply_preview.sender_name}</b>: {msg.reply_preview.content}
                           </div>
                         )}
-                        <div style={{ padding: '8px 10px', borderRadius: 12, backgroundColor: isMe ? '#4f46e5' : '#f3f4f6', color: isMe ? 'white' : '#111827', fontSize: 13, position: 'relative' }}>
+                        <div style={{ padding: '8px 10px', borderRadius: 12, backgroundColor: isMe ? '#4f46e5' : 'hsl(var(--surface-ground))', color: isMe ? 'white' : 'hsl(var(--text-primary))', fontSize: 13, position: 'relative' }}>
                           <p style={{ margin: 0, fontSize: 10, opacity: 0.7, fontWeight: 600 }}>{msg.sender_name}</p>
                           <p style={{ margin: '2px 0', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.message}</p>
                           <p style={{ margin: 0, fontSize: 9, opacity: 0.5, textAlign: 'right' }}>{msg.timestamp}</p>
                           {/* hover actions */}
-                          <div className="chat-msg-actions" style={{ position: 'absolute', top: -12, [isMe ? 'left' : 'right']: 4, display: 'flex', gap: 2, background: 'white', borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.12)', padding: 2 }}>
-                            <button onClick={() => { setReplyTo(msg); inputRef.current?.focus() }} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 3, color: '#6b7280' }} title="Reply"><Reply size={13} /></button>
-                            <button onClick={() => setEmojiPickerFor(emojiPickerFor === msg.id ? null : msg.id)} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 3, color: '#6b7280' }} title="React"><SmilePlus size={13} /></button>
+                          <div className="chat-msg-actions" style={{ position: 'absolute', top: -12, [isMe ? 'left' : 'right']: 4, display: 'flex', gap: 2, background: 'hsl(var(--surface-card))', borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.2)', padding: 2 }}>
+                            <button onClick={() => { setReplyTo(msg); inputRef.current?.focus() }} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 3, color: 'hsl(var(--text-secondary))' }} title="Reply"><Reply size={13} /></button>
+                            <button onClick={() => setEmojiPickerFor(emojiPickerFor === msg.id ? null : msg.id)} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 3, color: 'hsl(var(--text-secondary))' }} title="React"><SmilePlus size={13} /></button>
                           </div>
                           {emojiPickerFor === msg.id && (
-                            <div style={{ position: 'absolute', top: -40, [isMe ? 'left' : 'right']: 0, display: 'flex', gap: 2, background: 'white', borderRadius: 20, boxShadow: '0 4px 16px rgba(0,0,0,0.15)', padding: '4px 8px', zIndex: 10 }}>
+                            <div style={{ position: 'absolute', top: -40, [isMe ? 'left' : 'right']: 0, display: 'flex', gap: 2, background: 'hsl(var(--surface-card))', borderRadius: 20, boxShadow: '0 4px 16px rgba(0,0,0,0.25)', padding: '4px 8px', zIndex: 10 }}>
                               {QUICK_EMOJIS.map(e => <button key={e} onClick={() => toggleReaction(msg.id, e)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, padding: 2 }}>{e}</button>)}
                             </div>
                           )}
@@ -288,7 +288,7 @@ export default function ChatWidget() {
                         {msg.reactions.length > 0 && (
                           <div style={{ display: 'flex', gap: 4, marginTop: 3, flexWrap: 'wrap' }}>
                             {msg.reactions.map(r => (
-                              <button key={r.emoji} onClick={() => toggleReaction(msg.id, r.emoji)} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 6px', borderRadius: 10, border: `1px solid ${r.reacted ? '#4f46e5' : '#e5e7eb'}`, background: r.reacted ? '#e0e7ff' : 'white', color: r.reacted ? '#4f46e5' : '#374151', cursor: 'pointer' }}>
+                              <button key={r.emoji} onClick={() => toggleReaction(msg.id, r.emoji)} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 6px', borderRadius: 10, border: `1px solid ${r.reacted ? '#4f46e5' : 'hsl(var(--border-subtle))'}`, background: r.reacted ? 'hsl(var(--accent-light))' : 'hsl(var(--surface-card))', color: r.reacted ? '#4f46e5' : 'hsl(var(--text-secondary))', cursor: 'pointer' }}>
                                 <span>{r.emoji}</span><span style={{ fontWeight: 600 }}>{r.count}</span>
                               </button>
                             ))}
@@ -303,15 +303,15 @@ export default function ChatWidget() {
 
               {/* reply banner above composer */}
               {replyTo && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 12px', background: '#f5f3ff', borderTop: '1px solid #e0e7ff', fontSize: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 12px', background: 'hsl(var(--accent-light))', borderTop: '1px solid hsl(var(--border-subtle))', fontSize: 12, color: 'hsl(var(--text-primary))' }}>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Replying to <b>{replyTo.sender_name}</b>: {replyTo.message.slice(0, 40)}</span>
-                  <button onClick={() => setReplyTo(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#6b7280', padding: 2, flexShrink: 0 }}><X size={14} /></button>
+                  <button onClick={() => setReplyTo(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'hsl(var(--text-secondary))', padding: 2, flexShrink: 0 }}><X size={14} /></button>
                 </div>
               )}
 
-              <div style={{ padding: 10, borderTop: '1px solid #f3f4f6', display: 'flex', gap: 8 }}>
-                <input ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Type a message..." disabled={sending} style={{ flex: 1, border: '1px solid #e5e7eb', borderRadius: 20, padding: '8px 14px', fontSize: 13, outline: 'none' }} />
-                <button onClick={sendMessage} disabled={sending || !input.trim()} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: input.trim() ? '#4f46e5' : '#e5e7eb', color: 'white', border: 'none', cursor: input.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ padding: 10, borderTop: '1px solid hsl(var(--border-subtle))', display: 'flex', gap: 8 }}>
+                <input ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Type a message..." disabled={sending} style={{ flex: 1, border: '1px solid hsl(var(--border-subtle))', borderRadius: 20, padding: '8px 14px', fontSize: 13, outline: 'none', backgroundColor: 'hsl(var(--surface-card))', color: 'hsl(var(--text-primary))' }} />
+                <button onClick={sendMessage} disabled={sending || !input.trim()} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: input.trim() ? '#4f46e5' : 'hsl(var(--border-default))', color: 'white', border: 'none', cursor: input.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Send size={14} />
                 </button>
               </div>
@@ -323,37 +323,37 @@ export default function ChatWidget() {
       {/* Create Room Modal */}
       {showCreate && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15,23,42,0.4)' }} onClick={closeCreate}>
-          <div role="dialog" aria-modal="true" style={{ width: 480, backgroundColor: 'white', borderRadius: 16, boxShadow: '0 25px 60px rgba(0,0,0,0.2)', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f3f4f6' }}>
-              <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0 }}>New room</h2>
-              <button onClick={closeCreate} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><X size={18} color="#6b7280" /></button>
+          <div role="dialog" aria-modal="true" style={{ width: 480, backgroundColor: 'hsl(var(--surface-card))', borderRadius: 16, boxShadow: '0 25px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid hsl(var(--border-subtle))' }}>
+              <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0, color: 'hsl(var(--text-primary))' }}>New room</h2>
+              <button onClick={closeCreate} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><X size={18} color="hsl(var(--text-secondary))" /></button>
             </div>
             <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#374151' }}>Room name</label>
-                <input ref={nameInputRef} value={newName} onChange={(e) => { setNewName(e.target.value.slice(0, 40)); setDirty(true); setNameError('') }} placeholder="e.g. Procurement Review" style={{ width: '100%', border: `1px solid ${nameError ? '#ef4444' : '#d1d5db'}`, borderRadius: 10, padding: '10px 14px', fontSize: 14, outline: 'none' }} />
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: 'hsl(var(--text-primary))' }}>Room name</label>
+                <input ref={nameInputRef} value={newName} onChange={(e) => { setNewName(e.target.value.slice(0, 40)); setDirty(true); setNameError('') }} placeholder="e.g. Procurement Review" style={{ width: '100%', border: `1px solid ${nameError ? '#ef4444' : 'hsl(var(--border-subtle))'}`, borderRadius: 10, padding: '10px 14px', fontSize: 14, outline: 'none', backgroundColor: 'hsl(var(--surface-card))', color: 'hsl(var(--text-primary))' }} />
                 {nameError && <p style={{ fontSize: 12, color: '#ef4444', margin: '4px 0 0' }}>{nameError}</p>}
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#374151' }}>Department</label>
-                <select value={newDept} onChange={(e) => { setNewDept(e.target.value); setDirty(true) }} style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: 10, padding: '10px 14px', fontSize: 14, outline: 'none' }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: 'hsl(var(--text-primary))' }}>Department</label>
+                <select value={newDept} onChange={(e) => { setNewDept(e.target.value); setDirty(true) }} style={{ width: '100%', border: '1px solid hsl(var(--border-subtle))', borderRadius: 10, padding: '10px 14px', fontSize: 14, outline: 'none', backgroundColor: 'hsl(var(--surface-card))', color: 'hsl(var(--text-primary))' }}>
                   <option value="">Select department</option>
                   {depts.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
-                <p style={{ fontSize: 11, color: '#9ca3af', margin: '4px 0 0' }}>Only members of this department can see this room.</p>
+                <p style={{ fontSize: 11, color: 'hsl(var(--text-tertiary))', margin: '4px 0 0' }}>Only members of this department can see this room.</p>
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#374151' }}>Visibility</label>
-                <div style={{ display: 'flex', backgroundColor: '#f3f4f6', borderRadius: 10, padding: 3, gap: 3 }}>
-                  <button onClick={() => setNewVisibility('public')} style={{ flex: 1, padding: 8, borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 500, cursor: 'pointer', backgroundColor: newVisibility === 'public' ? 'white' : 'transparent', color: newVisibility === 'public' ? '#111827' : '#6b7280' }}>Public</button>
-                  <button onClick={() => setNewVisibility('private')} style={{ flex: 1, padding: 8, borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 500, cursor: 'pointer', backgroundColor: newVisibility === 'private' ? 'white' : 'transparent', color: newVisibility === 'private' ? '#111827' : '#6b7280' }}>Private</button>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: 'hsl(var(--text-primary))' }}>Visibility</label>
+                <div style={{ display: 'flex', backgroundColor: 'hsl(var(--surface-ground))', borderRadius: 10, padding: 3, gap: 3 }}>
+                  <button onClick={() => setNewVisibility('public')} style={{ flex: 1, padding: 8, borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 500, cursor: 'pointer', backgroundColor: newVisibility === 'public' ? 'hsl(var(--surface-card))' : 'transparent', color: newVisibility === 'public' ? 'hsl(var(--text-primary))' : 'hsl(var(--text-secondary))' }}>Public</button>
+                  <button onClick={() => setNewVisibility('private')} style={{ flex: 1, padding: 8, borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 500, cursor: 'pointer', backgroundColor: newVisibility === 'private' ? 'hsl(var(--surface-card))' : 'transparent', color: newVisibility === 'private' ? 'hsl(var(--text-primary))' : 'hsl(var(--text-secondary))' }}>Private</button>
                 </div>
-                <p style={{ fontSize: 11, color: '#9ca3af', margin: '4px 0 0' }}>{newVisibility === 'public' ? 'Anyone in the department can join' : 'Only invited members can join — share an invite link after creating'}</p>
+                <p style={{ fontSize: 11, color: 'hsl(var(--text-tertiary))', margin: '4px 0 0' }}>{newVisibility === 'public' ? 'Anyone in the department can join' : 'Only invited members can join — share an invite link after creating'}</p>
               </div>
               {createError && <p style={{ fontSize: 13, color: '#ef4444', margin: 0 }}>{createError}</p>}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '16px 20px', borderTop: '1px solid #f3f4f6' }}>
-              <button onClick={closeCreate} style={{ padding: '10px 18px', borderRadius: 10, border: 'none', fontSize: 14, cursor: 'pointer', backgroundColor: '#f3f4f6', color: '#374151' }}>Cancel</button>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '16px 20px', borderTop: '1px solid hsl(var(--border-subtle))' }}>
+              <button onClick={closeCreate} style={{ padding: '10px 18px', borderRadius: 10, border: 'none', fontSize: 14, cursor: 'pointer', backgroundColor: 'hsl(var(--surface-ground))', color: 'hsl(var(--text-primary))' }}>Cancel</button>
               <button onClick={createRoom} disabled={creating || !newName.trim() || !newDept} style={{ padding: '10px 18px', borderRadius: 10, border: 'none', fontSize: 14, fontWeight: 500, cursor: (creating || !newName.trim() || !newDept) ? 'not-allowed' : 'pointer', backgroundColor: (creating || !newName.trim() || !newDept) ? '#c7d2fe' : '#4f46e5', color: 'white', display: 'flex', alignItems: 'center', gap: 6 }}>
                 {creating && <Loader2 size={14} className="animate-spin" />}{creating ? 'Creating...' : 'Create'}
               </button>
@@ -365,16 +365,16 @@ export default function ChatWidget() {
       {/* Invite Link Modal */}
       {showInvite && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15,23,42,0.4)' }} onClick={() => setShowInvite(false)}>
-          <div role="dialog" aria-modal="true" style={{ width: 440, backgroundColor: 'white', borderRadius: 16, boxShadow: '0 25px 60px rgba(0,0,0,0.2)', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f3f4f6' }}>
-              <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0 }}>Invite to {activeRoom?.name}</h2>
-              <button onClick={() => setShowInvite(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><X size={18} color="#6b7280" /></button>
+          <div role="dialog" aria-modal="true" style={{ width: 440, backgroundColor: 'hsl(var(--surface-card))', borderRadius: 16, boxShadow: '0 25px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid hsl(var(--border-subtle))' }}>
+              <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0, color: 'hsl(var(--text-primary))' }}>Invite to {activeRoom?.name}</h2>
+              <button onClick={() => setShowInvite(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><X size={18} color="hsl(var(--text-secondary))" /></button>
             </div>
             <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#374151' }}>Allowed emails <span style={{ color: '#9ca3af' }}>(comma-separated, optional)</span></label>
-                <input value={inviteEmails} onChange={(e) => setInviteEmails(e.target.value)} placeholder="alice@co.com, bob@co.com" style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: 10, padding: '10px 14px', fontSize: 14, outline: 'none' }} />
-                <p style={{ fontSize: 11, color: '#9ca3af', margin: '4px 0 0' }}>Leave empty to allow anyone in your organisation. The link only works for people in your org.</p>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: 'hsl(var(--text-primary))' }}>Allowed emails <span style={{ color: 'hsl(var(--text-tertiary))' }}>(comma-separated, optional)</span></label>
+                <input value={inviteEmails} onChange={(e) => setInviteEmails(e.target.value)} placeholder="alice@co.com, bob@co.com" style={{ width: '100%', border: '1px solid hsl(var(--border-subtle))', borderRadius: 10, padding: '10px 14px', fontSize: 14, outline: 'none', backgroundColor: 'hsl(var(--surface-card))', color: 'hsl(var(--text-primary))' }} />
+                <p style={{ fontSize: 11, color: 'hsl(var(--text-tertiary))', margin: '4px 0 0' }}>Leave empty to allow anyone in your organisation. The link only works for people in your org.</p>
               </div>
               {!inviteLink ? (
                 <button onClick={generateInvite} disabled={generatingInvite} style={{ padding: '10px 18px', borderRadius: 10, border: 'none', fontSize: 14, fontWeight: 500, cursor: 'pointer', backgroundColor: '#4f46e5', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
@@ -382,7 +382,7 @@ export default function ChatWidget() {
                 </button>
               ) : (
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <input readOnly value={inviteLink} style={{ flex: 1, border: '1px solid #d1d5db', borderRadius: 10, padding: '10px 14px', fontSize: 13, outline: 'none', background: '#f9fafb' }} />
+                  <input readOnly value={inviteLink} style={{ flex: 1, border: '1px solid hsl(var(--border-subtle))', borderRadius: 10, padding: '10px 14px', fontSize: 13, outline: 'none', background: 'hsl(var(--surface-ground))', color: 'hsl(var(--text-primary))' }} />
                   <button onClick={copyLink} style={{ padding: '10px 14px', borderRadius: 10, border: 'none', fontSize: 13, fontWeight: 500, cursor: 'pointer', backgroundColor: copied ? '#10b981' : '#4f46e5', color: 'white', display: 'flex', alignItems: 'center', gap: 4 }}>
                     {copied ? <><Check size={14} /> Copied</> : 'Copy'}
                   </button>
@@ -396,29 +396,29 @@ export default function ChatWidget() {
       {/* DM Modal */}
       {showDM && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15,23,42,0.4)' }} onClick={() => setShowDM(false)}>
-          <div role="dialog" aria-modal="true" style={{ width: 400, backgroundColor: 'white', borderRadius: 16, boxShadow: '0 25px 60px rgba(0,0,0,0.2)', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f3f4f6' }}>
-              <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0 }}>New message</h2>
-              <button onClick={() => setShowDM(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><X size={18} color="#6b7280" /></button>
+          <div role="dialog" aria-modal="true" style={{ width: 400, backgroundColor: 'hsl(var(--surface-card))', borderRadius: 16, boxShadow: '0 25px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid hsl(var(--border-subtle))' }}>
+              <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0, color: 'hsl(var(--text-primary))' }}>New message</h2>
+              <button onClick={() => setShowDM(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><X size={18} color="hsl(var(--text-secondary))" /></button>
             </div>
             <div style={{ padding: 20 }}>
               <div style={{ position: 'relative', marginBottom: 12 }}>
-                <Search size={16} color="#9ca3af" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
-                <input value={dmSearch} onChange={(e) => setDmSearch(e.target.value)} placeholder="Search people..." style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: 10, padding: '10px 14px 10px 36px', fontSize: 14, outline: 'none' }} />
+                <Search size={16} color="hsl(var(--text-tertiary))" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }} />
+                <input value={dmSearch} onChange={(e) => setDmSearch(e.target.value)} placeholder="Search people..." style={{ width: '100%', border: '1px solid hsl(var(--border-subtle))', borderRadius: 10, padding: '10px 14px 10px 36px', fontSize: 14, outline: 'none', backgroundColor: 'hsl(var(--surface-card))', color: 'hsl(var(--text-primary))' }} />
               </div>
               <div style={{ maxHeight: 200, overflowY: 'auto' }}>
                 {filteredUsers.map((u: any) => (
-                  <button key={u.id} onClick={() => setDmUser(u)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: 10, border: 'none', borderRadius: 10, cursor: 'pointer', backgroundColor: dmUser?.id === u.id ? '#e0e7ff' : 'transparent', textAlign: 'left' }}>
+                  <button key={u.id} onClick={() => setDmUser(u)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: 10, border: 'none', borderRadius: 10, cursor: 'pointer', backgroundColor: dmUser?.id === u.id ? 'hsl(var(--accent-light))' : 'transparent', textAlign: 'left' }}>
                     <div style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#4f46e5', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{(u.full_name || '?')[0]}</div>
-                    <div><p style={{ fontSize: 14, fontWeight: 500, margin: 0 }}>{u.full_name}</p><p style={{ fontSize: 12, color: '#9ca3af', margin: 0 }}>{u.email}</p></div>
+                    <div><p style={{ fontSize: 14, fontWeight: 500, margin: 0, color: 'hsl(var(--text-primary))' }}>{u.full_name}</p><p style={{ fontSize: 12, color: 'hsl(var(--text-tertiary))', margin: 0 }}>{u.email}</p></div>
                   </button>
                 ))}
-                {filteredUsers.length === 0 && <p style={{ textAlign: 'center', color: '#9ca3af', fontSize: 13, padding: 20 }}>No users found</p>}
+                {filteredUsers.length === 0 && <p style={{ textAlign: 'center', color: 'hsl(var(--text-tertiary))', fontSize: 13, padding: 20 }}>No users found</p>}
               </div>
               {dmError && <p style={{ fontSize: 13, color: '#ef4444', margin: '8px 0 0' }}>{dmError}</p>}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '16px 20px', borderTop: '1px solid #f3f4f6' }}>
-              <button onClick={() => setShowDM(false)} style={{ padding: '10px 18px', borderRadius: 10, border: 'none', fontSize: 14, cursor: 'pointer', backgroundColor: '#f3f4f6', color: '#374151' }}>Cancel</button>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '16px 20px', borderTop: '1px solid hsl(var(--border-subtle))' }}>
+              <button onClick={() => setShowDM(false)} style={{ padding: '10px 18px', borderRadius: 10, border: 'none', fontSize: 14, cursor: 'pointer', backgroundColor: 'hsl(var(--surface-ground))', color: 'hsl(var(--text-primary))' }}>Cancel</button>
               <button onClick={startDM} disabled={startingDM || !dmUser} style={{ padding: '10px 18px', borderRadius: 10, border: 'none', fontSize: 14, fontWeight: 500, cursor: (startingDM || !dmUser) ? 'not-allowed' : 'pointer', backgroundColor: (startingDM || !dmUser) ? '#c7d2fe' : '#4f46e5', color: 'white', display: 'flex', alignItems: 'center', gap: 6 }}>
                 {startingDM && <Loader2 size={14} className="animate-spin" />}{startingDM ? 'Starting...' : 'Start Chat'}
               </button>

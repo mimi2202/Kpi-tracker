@@ -1,13 +1,22 @@
 // frontend/src/pages/WeeklyEntryPage.tsx
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { resultsApi } from '../api/results'
 import { periodsApi, type ReportingPeriod } from '../api/periods'
 import type { KPIResult } from '../types'
 import { Save, Send, RefreshCw } from 'lucide-react'
 
+const STATUS_BADGE: Record<string, { label: string; color: string; bg: string }> = {
+  SUBMITTED: { label: 'Pending review', color: '#b45309', bg: '#fef3c7' },
+  RETURNED: { label: 'Returned', color: '#dc2626', bg: '#fee2e2' },
+  FULLY_APPROVED: { label: 'Approved', color: '#059669', bg: '#d1fae5' },
+  LOCKED: { label: 'Locked', color: '#6b7280', bg: '#f3f4f6' },
+}
+
 export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?: string }) {
   const user = useAuthStore((s) => s.user)
+  const navigate = useNavigate()
   const [periods, setPeriods] = useState<ReportingPeriod[]>([])
   const [selectedPeriodId, setSelectedPeriodId] = useState('')
   const [results, setResults] = useState<KPIResult[]>([])
@@ -60,6 +69,8 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
 
   useEffect(() => { fetchResults() }, [fetchResults])
 
+  const isLocked = (status?: string) => status === 'SUBMITTED' || status === 'FULLY_APPROVED' || status === 'LOCKED'
+
   const handleSave = async (resultId: string) => {
     setSaving(resultId)
     setMessage(null)
@@ -98,6 +109,8 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
   const onTrack = results.filter(r => r.rag_status === 'ON_TRACK').length
   const atRisk = results.filter(r => r.rag_status === 'AT_RISK').length
   const offTrack = results.filter(r => r.rag_status === 'OFF_TRACK').length
+  // Only DRAFT/RETURNED rows are actually eligible to submit — matches what the backend accepts.
+  const eligibleToSubmit = results.filter(r => r.actual_value != null && !isLocked(r.submission_status)).length
 
   return (
     <div className="space-y-6">
@@ -169,68 +182,88 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
                   <th>Status</th>
                   <th>Trend</th>
                   <th>Notes</th>
+                  <th>Review</th>
                   <th>Save</th>
                 </tr>
               </thead>
               <tbody>
-                {results.map(result => (
-                  <tr key={result.id} className={result.actual_value == null ? 'bg-yellow-50/30' : ''}>
-                    <td className="text-sm text-gray-600">{result.department_name}</td>
-                    <td>
-                      <div className="text-sm font-medium">{result.kpi_code}</div>
-                      <div className="text-xs text-gray-500 max-w-[180px] truncate">{result.kpi_name}</div>
-                    </td>
-                    <td className="text-sm font-mono">{(result.target_value_display ?? result.target_value)}</td>
-                    <td>
-                      <input
-                        type="number"
-                        step="any"
-                        value={editValues[result.id] ?? ''}
-                        onChange={(e) => setEditValues(prev => ({ ...prev, [result.id]: e.target.value }))}
-                        className="input-field border w-24 text-center"
-                        placeholder="—"
-                      />
-                    </td>
-                    <td className="text-sm font-medium">
-                      {result.achievement_percentage != null ? `${result.achievement_percentage}%` : '—'}
-                    </td>
-                    <td>
-                      <span className={`status-pill ${
-                        result.rag_status === 'ON_TRACK' ? 'on-track' :
-                        result.rag_status === 'AT_RISK' ? 'at-risk' :
-                        result.rag_status === 'OFF_TRACK' ? 'off-track' : 'no-data'
-                      }`}>
-                        {result.rag_display}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`trend-indicator ${
-                        result.trend_status === 'IMPROVING' ? 'trend-up' :
-                        result.trend_status === 'DECLINING' ? 'trend-down' : 'trend-stable'
-                      }`}>
-                        {result.trend_icon || '—'}
-                      </span>
-                    </td>
-                    <td>
-                      <input
-                        type="text"
-                        value={editNotes[result.id] ?? ''}
-                        onChange={(e) => setEditNotes(prev => ({ ...prev, [result.id]: e.target.value }))}
-                        className="input-field border w-32 text-sm"
-                        placeholder="Note..."
-                      />
-                    </td>
-                    <td>
-                      <button
-                        onClick={() => handleSave(result.id)}
-                        disabled={saving === result.id}
-                        className="btn btn-primary text-xs py-1.5 px-3"
-                      >
-                        {saving === result.id ? '...' : 'Save'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {results.map(result => {
+                  const locked = isLocked(result.submission_status)
+                  const badge = result.submission_status ? STATUS_BADGE[result.submission_status] : undefined
+                  return (
+                    <tr key={result.id} className={result.actual_value == null ? 'bg-yellow-50/30' : ''}>
+                      <td className="text-sm text-gray-600">{result.department_name}</td>
+                      <td>
+                        <div className="text-sm font-medium">{result.kpi_code}</div>
+                        <div className="text-xs text-gray-500 max-w-[180px] truncate">{result.kpi_name}</div>
+                      </td>
+                      <td className="text-sm font-mono">{(result.target_value_display ?? result.target_value)}</td>
+                      <td>
+                        <input
+                          type="number"
+                          step="any"
+                          value={editValues[result.id] ?? ''}
+                          onChange={(e) => setEditValues(prev => ({ ...prev, [result.id]: e.target.value }))}
+                          className="input-field border w-24 text-center"
+                          placeholder="—"
+                          disabled={locked}
+                        />
+                      </td>
+                      <td className="text-sm font-medium">
+                        {result.achievement_percentage != null ? `${result.achievement_percentage}%` : '—'}
+                      </td>
+                      <td>
+                        <span className={`status-pill ${
+                          result.rag_status === 'ON_TRACK' ? 'on-track' :
+                          result.rag_status === 'AT_RISK' ? 'at-risk' :
+                          result.rag_status === 'OFF_TRACK' ? 'off-track' : 'no-data'
+                        }`}>
+                          {result.rag_display}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`trend-indicator ${
+                          result.trend_status === 'IMPROVING' ? 'trend-up' :
+                          result.trend_status === 'DECLINING' ? 'trend-down' : 'trend-stable'
+                        }`}>
+                          {result.trend_icon || '—'}
+                        </span>
+                      </td>
+                      <td>
+                        <input
+                          type="text"
+                          value={editNotes[result.id] ?? ''}
+                          onChange={(e) => setEditNotes(prev => ({ ...prev, [result.id]: e.target.value }))}
+                          className="input-field border w-32 text-sm"
+                          placeholder="Note..."
+                          disabled={locked}
+                        />
+                      </td>
+                      <td>
+                        {badge ? (
+                          <button
+                            onClick={() => navigate(`/kpi-review/${result.id}`)}
+                            style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 999, color: badge.color, backgroundColor: badge.bg, border: 'none', cursor: 'pointer' }}
+                            title={result.review_comment || undefined}
+                          >
+                            {badge.label}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-gray-300">—</span>
+                        )}
+                      </td>
+                      <td>
+                        <button
+                          onClick={() => handleSave(result.id)}
+                          disabled={saving === result.id || locked}
+                          className="btn btn-primary text-xs py-1.5 px-3"
+                        >
+                          {saving === result.id ? '...' : 'Save'}
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -239,7 +272,7 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
             <p className="text-sm text-gray-500">{submitted} of {results.length} KPIs completed</p>
             <button
               onClick={handleSubmitAll}
-              disabled={saving === 'all' || submitted === 0}
+              disabled={saving === 'all' || eligibleToSubmit === 0}
               className="btn btn-primary"
             >
               <Send className="h-4 w-4" />

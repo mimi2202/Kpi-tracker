@@ -2,7 +2,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuthStore } from '../store/authStore'
 import { apiClient } from '../api/client'
-import { Plus, Check, Layers, Sparkles, Building2, X, Loader2, Pencil, Trash2, RefreshCw } from 'lucide-react'
+import Modal from '../components/shared/Modal'
+import { Plus, Check, Layers, Sparkles, Building2, Loader2, Pencil, Trash2, RefreshCw, Download } from 'lucide-react'
 
 interface Category { id: string; name: string; description: string; preset_count: number; display_order: number }
 interface Preset {
@@ -13,6 +14,31 @@ interface Department { id: string; name: string; code: string }
 
 const FREQ = ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL']
 const DIR = [['HIGHER_BETTER', 'Higher is better'], ['LOWER_BETTER', 'Lower is better']]
+
+// Starter presets. Any admin can load these into the org, then edit or delete them.
+// They become normal KPIPreset rows, scoped to the admin's organisation like everything else here.
+const STARTER_PRESETS: Array<{
+  category: string
+  name: string
+  description: string
+  target_value: number
+  unit: string
+  calculation_direction: string
+  reporting_frequency: string
+}> = [
+  { category: 'Sales', name: 'Monthly Revenue', description: 'Total revenue generated in the period', target_value: 50000, unit: '$', calculation_direction: 'HIGHER_BETTER', reporting_frequency: 'MONTHLY' },
+  { category: 'Sales', name: 'New Customers', description: 'Number of new customers acquired', target_value: 20, unit: '', calculation_direction: 'HIGHER_BETTER', reporting_frequency: 'MONTHLY' },
+  { category: 'Sales', name: 'Conversion Rate', description: 'Leads converted to paying customers', target_value: 15, unit: '%', calculation_direction: 'HIGHER_BETTER', reporting_frequency: 'MONTHLY' },
+  { category: 'Operations', name: 'On-Time Delivery Rate', description: 'Orders delivered within the promised window', target_value: 95, unit: '%', calculation_direction: 'HIGHER_BETTER', reporting_frequency: 'MONTHLY' },
+  { category: 'Operations', name: 'Average Turnaround Time', description: 'Average hours to complete a task or order', target_value: 24, unit: 'hrs', calculation_direction: 'LOWER_BETTER', reporting_frequency: 'WEEKLY' },
+  { category: 'Customer', name: 'Customer Satisfaction Score', description: 'Average post-interaction satisfaction rating', target_value: 90, unit: '%', calculation_direction: 'HIGHER_BETTER', reporting_frequency: 'MONTHLY' },
+  { category: 'Customer', name: 'Support Response Time', description: 'Average time to first response on a ticket', target_value: 2, unit: 'hrs', calculation_direction: 'LOWER_BETTER', reporting_frequency: 'WEEKLY' },
+  { category: 'Customer', name: 'Customer Retention Rate', description: 'Customers retained over the period', target_value: 90, unit: '%', calculation_direction: 'HIGHER_BETTER', reporting_frequency: 'QUARTERLY' },
+  { category: 'Finance', name: 'Operating Margin', description: 'Operating income as a share of revenue', target_value: 20, unit: '%', calculation_direction: 'HIGHER_BETTER', reporting_frequency: 'QUARTERLY' },
+  { category: 'Finance', name: 'Cash Flow', description: 'Net cash generated in the period', target_value: 10000, unit: '$', calculation_direction: 'HIGHER_BETTER', reporting_frequency: 'MONTHLY' },
+  { category: 'HR', name: 'Employee Attendance Rate', description: 'Scheduled hours actually worked', target_value: 96, unit: '%', calculation_direction: 'HIGHER_BETTER', reporting_frequency: 'MONTHLY' },
+  { category: 'HR', name: 'Staff Turnover Rate', description: 'Employees who left over the period', target_value: 5, unit: '%', calculation_direction: 'LOWER_BETTER', reporting_frequency: 'QUARTERLY' },
+]
 
 export default function PresetsPage() {
   const user = useAuthStore((s) => s.user)
@@ -26,6 +52,7 @@ export default function PresetsPage() {
   const [loading, setLoading] = useState(true)
   const [applyDept, setApplyDept] = useState('')
   const [applying, setApplying] = useState(false)
+  const [seeding, setSeeding] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const [editing, setEditing] = useState<Preset | null>(null)
@@ -77,6 +104,52 @@ export default function PresetsPage() {
     catch { toast('error', 'Delete failed') }
   }
 
+  // Seeds STARTER_PRESETS into the org: creates missing categories, then missing presets.
+  // Any admin or team leader in the org can run this, and everyone in the org sees the result,
+  // since categories and presets are scoped by organisation_id on the backend, not by user.
+  const loadStarterPresets = async () => {
+    setSeeding(true)
+    try {
+      const existingCatByName = new Map(categories.map(c => [c.name.toLowerCase(), c.id]))
+      const neededCatNames = Array.from(new Set(STARTER_PRESETS.map(p => p.category)))
+
+      for (const catName of neededCatNames) {
+        if (!existingCatByName.has(catName.toLowerCase())) {
+          const res = await apiClient.post('/kpi-preset-categories/', {
+            name: catName, description: `${catName} KPIs`, is_active: true, display_order: 0,
+          })
+          existingCatByName.set(catName.toLowerCase(), res.data.id)
+        }
+      }
+
+      const existingPresetNames = new Set(presets.map(p => p.name.toLowerCase()))
+      let createdCount = 0
+
+      for (const p of STARTER_PRESETS) {
+        if (existingPresetNames.has(p.name.toLowerCase())) continue
+        const categoryId = existingCatByName.get(p.category.toLowerCase())
+        if (!categoryId) continue
+        await apiClient.post('/kpi-presets/', {
+          name: p.name,
+          description: p.description,
+          category: categoryId,
+          target_value: p.target_value,
+          unit: p.unit,
+          calculation_direction: p.calculation_direction,
+          reporting_frequency: p.reporting_frequency,
+          is_active: true,
+        })
+        createdCount += 1
+      }
+
+      if (createdCount === 0) toast('success', 'Starter presets are already loaded')
+      else toast('success', `Added ${createdCount} starter preset${createdCount === 1 ? '' : 's'}`)
+      await load()
+    } catch (err: any) {
+      toast('error', err.response?.data?.detail || 'Failed to load starter presets')
+    } finally { setSeeding(false) }
+  }
+
   const visible = presets.filter(p => !activeCat || p.category === activeCat)
 
   if (!canManage) return <div className="card p-8 text-center text-gray-500">Only admins and team leaders can manage preset KPIs.</div>
@@ -90,6 +163,10 @@ export default function PresetsPage() {
         </div>
         <div className="flex gap-2">
           <button onClick={load} className="btn btn-ghost text-sm"><RefreshCw className="h-4 w-4" /></button>
+          <button onClick={loadStarterPresets} disabled={seeding} className="btn btn-ghost text-sm">
+            {seeding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            {seeding ? 'Loading…' : 'Load starter presets'}
+          </button>
           <button onClick={() => { setEditing(null); setShowForm(true) }} className="btn btn-primary text-sm"><Plus className="h-4 w-4" /> New preset</button>
         </div>
       </div>
@@ -97,14 +174,16 @@ export default function PresetsPage() {
       {message && <div className={`p-3 rounded-xl text-sm ${message.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>{message.text}</div>}
 
       {/* Category tabs */}
-      <div className="flex flex-wrap gap-2">
-        {categories.map(c => (
-          <button key={c.id} onClick={() => setActiveCat(c.id)}
-            className={`text-sm px-3 py-1.5 rounded-full border transition-colors ${activeCat === c.id ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-gray-300 text-gray-600 hover:border-indigo-400'}`}>
-            {c.name} <span className="opacity-70">({c.preset_count})</span>
-          </button>
-        ))}
-      </div>
+      {categories.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {categories.map(c => (
+            <button key={c.id} onClick={() => setActiveCat(c.id)}
+              className={`text-sm px-3 py-1.5 rounded-full border transition-colors ${activeCat === c.id ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-gray-300 text-gray-600 hover:border-indigo-400'}`}>
+              {c.name} <span className="opacity-70">({c.preset_count})</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {loading ? (
         <div className="card p-12 text-center text-gray-500">Loading…</div>
@@ -112,7 +191,7 @@ export default function PresetsPage() {
         <div className="card p-12 text-center text-gray-500">
           <Layers className="h-10 w-10 mx-auto mb-3 text-gray-300" />
           <p>No presets in this category yet.</p>
-          <p className="text-sm mt-1">Add one, or run the seed command to load starter presets.</p>
+          <p className="text-sm mt-1">Add one, or click "Load starter presets" above to get a set of common KPIs.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -190,57 +269,110 @@ function PresetForm({ preset, categories, onClose, onSaved }: { preset: Preset |
     finally { setSaving(false) }
   }
 
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '9px 12px',
+    fontSize: 14,
+    border: '1px solid #d1d5db',
+    borderRadius: 8,
+    outline: 'none',
+    marginTop: 6,
+    backgroundColor: '#fff',
+    color: '#111827',
+  }
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: 12,
+    fontWeight: 600,
+    color: '#374151',
+    display: 'block',
+  }
+
+  const sectionTitleStyle: React.CSSProperties = {
+    fontSize: 11,
+    fontWeight: 700,
+    color: '#9ca3af',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    marginBottom: 12,
+  }
+
+  const focusHandlers = {
+    onFocus: (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement>) => {
+      e.target.style.borderColor = '#6366f1'
+      e.target.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.15)'
+    },
+    onBlur: (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement>) => {
+      e.target.style.borderColor = '#d1d5db'
+      e.target.style.boxShadow = 'none'
+    },
+  }
+
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(15,23,42,0.4)' }} onClick={onClose}>
-      <div className="card" style={{ width: 480, maxWidth: '90vw' }} onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="font-semibold">{preset ? 'Edit preset' : 'New preset'}</h2>
-          <button onClick={onClose}><X className="h-5 w-5 text-gray-400" /></button>
-        </div>
-        <div className="p-4 space-y-3">
-          <div>
-            <label className="text-xs font-medium text-gray-600">Name</label>
-            <input value={name} onChange={e => setName(e.target.value)} className="input-field border w-full mt-1" placeholder="e.g. Monthly Revenue" />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-600">Description</label>
-            <input value={description} onChange={e => setDescription(e.target.value)} className="input-field border w-full mt-1" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+    <Modal
+      open={true}
+      onClose={onClose}
+      title={preset ? 'Edit preset' : 'New preset'}
+      size="md"
+      footer={
+        <>
+          <button onClick={onClose} className="btn btn-ghost text-sm">Cancel</button>
+          <button onClick={save} disabled={saving} className="btn btn-primary text-sm">
+            {saving ? 'Saving…' : 'Save preset'}
+          </button>
+        </>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+
+        <div>
+          <p style={sectionTitleStyle}>Basic info</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
-              <label className="text-xs font-medium text-gray-600">Category</label>
-              <select value={category} onChange={e => setCategory(e.target.value)} className="input-field border w-full mt-1">
+              <label style={labelStyle}>Name</label>
+              <input value={name} onChange={e => setName(e.target.value)} style={inputStyle} {...focusHandlers} placeholder="e.g. Monthly Revenue" />
+            </div>
+            <div>
+              <label style={labelStyle}>Description</label>
+              <input value={description} onChange={e => setDescription(e.target.value)} style={inputStyle} {...focusHandlers} placeholder="What this KPI measures" />
+            </div>
+            <div>
+              <label style={labelStyle}>Category</label>
+              <select value={category} onChange={e => setCategory(e.target.value)} style={inputStyle} {...focusHandlers}>
                 {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
+          </div>
+        </div>
+
+        <div style={{ borderTop: '1px solid #f3f4f6', paddingTop: 20 }}>
+          <p style={sectionTitleStyle}>Target and measurement</p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div>
-              <label className="text-xs font-medium text-gray-600">Frequency</label>
-              <select value={frequency} onChange={e => setFrequency(e.target.value)} className="input-field border w-full mt-1">
+              <label style={labelStyle}>Target</label>
+              <input type="number" value={target} onChange={e => setTarget(e.target.value)} style={inputStyle} {...focusHandlers} />
+            </div>
+            <div>
+              <label style={labelStyle}>Unit</label>
+              <input value={unit} onChange={e => setUnit(e.target.value)} style={inputStyle} {...focusHandlers} placeholder="%, hrs, $…" />
+            </div>
+            <div>
+              <label style={labelStyle}>Frequency</label>
+              <select value={frequency} onChange={e => setFrequency(e.target.value)} style={inputStyle} {...focusHandlers}>
                 {FREQ.map(f => <option key={f} value={f}>{f[0] + f.slice(1).toLowerCase()}</option>)}
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium text-gray-600">Target</label>
-              <input type="number" value={target} onChange={e => setTarget(e.target.value)} className="input-field border w-full mt-1" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-600">Unit</label>
-              <input value={unit} onChange={e => setUnit(e.target.value)} className="input-field border w-full mt-1" placeholder="%, hrs, $…" />
-            </div>
-            <div className="col-span-2">
-              <label className="text-xs font-medium text-gray-600">Direction</label>
-              <select value={direction} onChange={e => setDirection(e.target.value)} className="input-field border w-full mt-1">
+              <label style={labelStyle}>Direction</label>
+              <select value={direction} onChange={e => setDirection(e.target.value)} style={inputStyle} {...focusHandlers}>
                 {DIR.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </div>
           </div>
-          {err && <p className="text-sm text-red-600">{err}</p>}
         </div>
-        <div className="flex justify-end gap-2 p-4 border-t">
-          <button onClick={onClose} className="btn btn-ghost text-sm">Cancel</button>
-          <button onClick={save} disabled={saving} className="btn btn-primary text-sm">{saving ? 'Saving…' : 'Save preset'}</button>
-        </div>
+
+        {err && <p style={{ fontSize: 13, color: '#dc2626', margin: 0 }}>{err}</p>}
       </div>
-    </div>
+    </Modal>
   )
 }

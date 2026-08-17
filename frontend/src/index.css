@@ -1,6 +1,11 @@
 /* frontend/src/index.css */
 @import "tailwindcss";
 
+/* Tailwind v4 uses CSS-first config. This makes `dark:` utilities respond to
+   a `.dark` class on an ancestor (what we toggle), instead of the OS
+   prefers-color-scheme setting, so the in-app toggle actually controls it. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer base {
   :root {
     /* === SURFACES === */
@@ -62,6 +67,48 @@
     --radius-2xl: 24px;
   }
 
+  /* Dark mode redefines the SAME variables the whole design system already
+     consumes. Because .card, .btn, .input-field, .status-pill, .data-table,
+     and .tab-bar are all built on hsl(var(--...)) rather than hardcoded
+     colors, they get dark mode automatically just from this block, no
+     per-component changes needed for anything that goes through these vars. */
+  .dark {
+    --surface-ground: 222 47% 9%;
+    --surface-card: 222 40% 13%;
+    --surface-elevated: 222 38% 16%;
+    --surface-overlay: 222 38% 16%;
+
+    --text-primary: 210 20% 92%;
+    --text-secondary: 216 12% 68%;
+    --text-tertiary: 216 10% 52%;
+    --text-disabled: 216 8% 38%;
+
+    --accent: 234 82% 66%;
+    --accent-light: 234 40% 20%;
+    --accent-glow: 234 82% 66% / 0.25;
+
+    --status-on-track: 150 60% 55%;
+    --status-on-track-bg: 150 40% 16%;
+    --status-on-track-border: 150 40% 26%;
+    --status-at-risk: 42 85% 60%;
+    --status-at-risk-bg: 42 50% 16%;
+    --status-at-risk-border: 42 50% 28%;
+    --status-off-track: 0 70% 65%;
+    --status-off-track-bg: 0 45% 18%;
+    --status-off-track-border: 0 45% 30%;
+    --status-no-data: 220 8% 60%;
+    --status-no-data-bg: 220 15% 18%;
+
+    --border-subtle: 220 20% 20%;
+    --border-default: 220 18% 26%;
+
+    --shadow-xs: 0 1px 2px hsl(0 0% 0% / 0.2);
+    --shadow-sm: 0 1px 3px hsl(0 0% 0% / 0.3), 0 1px 2px hsl(0 0% 0% / 0.2);
+    --shadow-md: 0 4px 12px hsl(0 0% 0% / 0.35), 0 1px 2px hsl(0 0% 0% / 0.2);
+    --shadow-lg: 0 12px 32px hsl(0 0% 0% / 0.4), 0 2px 6px hsl(0 0% 0% / 0.25);
+    --shadow-xl: 0 20px 48px hsl(0 0% 0% / 0.45), 0 4px 12px hsl(0 0% 0% / 0.3);
+  }
+
   body {
     background: hsl(var(--surface-ground));
     color: hsl(var(--text-primary));
@@ -70,6 +117,8 @@
     letter-spacing: -0.011em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    transition: background-color var(--duration-normal) var(--ease-out-expo),
+                color var(--duration-normal) var(--ease-out-expo);
   }
 
   ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -87,7 +136,8 @@
     box-shadow: var(--shadow-sm);
     transition: box-shadow var(--duration-normal) var(--ease-out-expo),
                 transform var(--duration-normal) var(--ease-out-expo),
-                border-color var(--duration-normal) var(--ease-out-expo);
+                border-color var(--duration-normal) var(--ease-out-expo),
+                background-color var(--duration-normal) var(--ease-out-expo);
   }
   .card:hover {
     box-shadow: var(--shadow-md);
@@ -334,14 +384,27 @@ nav::-webkit-scrollbar {
   fill: white !important;
   background: white !important;
 }
+.dark .recharts-rectangle.recharts-surface,
+.dark .recharts-wrapper svg rect:first-child,
+.dark .recharts-surface {
+  fill: hsl(var(--surface-card)) !important;
+  background: hsl(var(--surface-card)) !important;
+}
 
 .recharts-cartesian-grid-horizontal line,
 .recharts-cartesian-grid-vertical line {
   stroke: #f1f5f9 !important;
 }
+.dark .recharts-cartesian-grid-horizontal line,
+.dark .recharts-cartesian-grid-vertical line {
+  stroke: #334155 !important;
+}
 
 .recharts-cartesian-axis-tick-value tspan {
   fill: #64748b !important;
+}
+.dark .recharts-cartesian-axis-tick-value tspan {
+  fill: #94a3b8 !important;
 }
 
 /* Chat scrollbar */
@@ -358,17 +421,78 @@ div[style*="overflow-y: auto"]::-webkit-scrollbar-thumb {
 div[style*="overflow-y: auto"]::-webkit-scrollbar-thumb:hover {
   background: #d1d5db;
 }
-
-.dark body { background: #0f172a; color: #e2e8f0; }
-.dark .card { background: #1e293b; border-color: #334155; }
-.dark .bg-white { background: #1e293b; }
-.dark .text-gray-900 { color: #e2e8f0; }
-.dark .text-gray-500 { color: #94a3b8; }
-.dark .border-b { border-color: #334155; }
-.dark .bg-gray-50 { background: #1e293b; }
-.dark .bg-[hsl(var(--surface-ground))] { background: #0f172a; }
-.dark .bg-[hsl(var(--surface-card))] { background: #1e293b; }
-.dark .border-[hsl(var(--border-subtle))] { border-color: #334155; }
+.dark div[style*="overflow-y: auto"]::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+.dark div[style*="overflow-y: auto"]::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
 
 .chat-msg-actions { opacity: 0; transition: opacity 0.12s; }
 .chat-msg-row:hover .chat-msg-actions { opacity: 1; }
+
+/* ============================================================
+   Raw Tailwind utility overrides for dark mode.
+   These classes (text-gray-*, bg-gray-*, border-gray-*, and the
+   light status-tint backgrounds) are used directly in JSX across
+   many pages, not routed through the CSS variables above. This
+   covers the common ones seen throughout the app. It does NOT
+   cover inline `style={{ color: '#...' }}` objects — CSS cannot
+   override those regardless of specificity, those pages need
+   their inline colors converted to theme-aware values directly.
+   ============================================================ */
+.dark { color-scheme: dark; }
+
+.dark .bg-white { background-color: hsl(var(--surface-card)) !important; }
+.dark .bg-gray-50 { background-color: hsl(var(--surface-ground)) !important; }
+.dark .bg-gray-100 { background-color: hsl(var(--surface-elevated)) !important; }
+
+.dark .text-gray-300 { color: hsl(var(--text-disabled)) !important; }
+.dark .text-gray-400 { color: hsl(var(--text-tertiary)) !important; }
+.dark .text-gray-500 { color: hsl(var(--text-tertiary)) !important; }
+.dark .text-gray-600 { color: hsl(var(--text-secondary)) !important; }
+.dark .text-gray-700 { color: hsl(var(--text-secondary)) !important; }
+.dark .text-gray-900 { color: hsl(var(--text-primary)) !important; }
+
+.dark .border,
+.dark .border-b,
+.dark .border-t,
+.dark .border-gray-100,
+.dark .border-gray-200,
+.dark .border-gray-300 { border-color: hsl(var(--border-subtle)) !important; }
+
+.dark .bg-indigo-50 { background-color: hsl(var(--accent-light)) !important; }
+.dark .text-indigo-600,
+.dark .text-indigo-700 { color: hsl(var(--accent)) !important; }
+
+.dark .bg-red-50 { background-color: hsl(var(--status-off-track-bg)) !important; }
+.dark .bg-red-100 { background-color: hsl(var(--status-off-track-bg)) !important; }
+.dark .bg-red-200 { background-color: hsl(0 45% 24%) !important; }
+.dark .text-red-600,
+.dark .text-red-700,
+.dark .text-red-800 { color: hsl(var(--status-off-track)) !important; }
+
+.dark .bg-green-50,
+.dark .bg-emerald-50,
+.dark .bg-green-100 { background-color: hsl(var(--status-on-track-bg)) !important; }
+.dark .text-green-600,
+.dark .text-green-700,
+.dark .text-emerald-600,
+.dark .text-emerald-700 { color: hsl(var(--status-on-track)) !important; }
+
+.dark .bg-yellow-50,
+.dark .bg-yellow-100 { background-color: hsl(var(--status-at-risk-bg)) !important; }
+.dark .text-yellow-600,
+.dark .text-yellow-700 { color: hsl(var(--status-at-risk)) !important; }
+
+.dark .bg-orange-100 { background-color: hsl(30 45% 20%) !important; }
+.dark .text-orange-600,
+.dark .text-orange-700 { color: hsl(30 80% 65%) !important; }
+
+.dark .bg-purple-100 { background-color: hsl(270 40% 22%) !important; }
+.dark .text-purple-700 { color: hsl(270 70% 78%) !important; }
+
+.dark .bg-blue-100 { background-color: hsl(217 40% 22%) !important; }
+.dark .text-blue-700 { color: hsl(217 70% 78%) !important; }
+
+.dark .bg-gray-200 { background-color: hsl(var(--border-default)) !important; }

@@ -1,4 +1,4 @@
-# backend/apps/accounts/views.py
+﻿# backend/apps/accounts/views.py
 """Authentication views."""
 import secrets
 
@@ -15,6 +15,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from core.organisation_mixins import OrganisationScopedMixin
+from core.audit import log_action
 from apps.organisation.models import UserDepartment
 from .models import User, Organisation, Role
 from .permissions import IsAdminOrSelf
@@ -120,6 +121,15 @@ class UserViewSet(OrganisationScopedMixin, viewsets.ModelViewSet):
         else:
             members = User.objects.filter(id=user.id)
 
+        # department_ids lets the frontend filter which members show up per KPI,
+        # a KPI belongs to one department, and only that department's members
+        # should ever appear as candidates for it.
+        member_ids = [m.id for m in members]
+        dept_links = UserDepartment.objects.filter(user_id__in=member_ids).values_list("user_id", "department_id")
+        dept_map = {}
+        for uid, did in dept_links:
+            dept_map.setdefault(str(uid), []).append(str(did))
+
         data = [{
             "id": str(m.id),
             "full_name": m.full_name,
@@ -131,6 +141,7 @@ class UserViewSet(OrganisationScopedMixin, viewsets.ModelViewSet):
             "kpi_progress": m.get_kpi_progress() if hasattr(m, "get_kpi_progress") else None,
             "is_active": m.is_active,
             "team_size": m.team_members.count() if m.role in [Role.ADMIN, Role.TEAM_LEADER] else 0,
+            "department_ids": dept_map.get(str(m.id), []),
         } for m in members]
         return Response(data)
 
@@ -158,6 +169,7 @@ class UserViewSet(OrganisationScopedMixin, viewsets.ModelViewSet):
             target_user.manager = manager
 
         target_user.save()
+        log_action(request.user, "Changed Role", f"{target_user.full_name} → {target_user.get_role_display()}")
         return Response(UserSerializer(target_user, context={"request": request}).data)
 
     @action(detail=False, methods=["post"], permission_classes=[permissions.AllowAny])
@@ -196,6 +208,7 @@ class UserViewSet(OrganisationScopedMixin, viewsets.ModelViewSet):
             org.save()
 
         refresh = RefreshToken.for_user(user)
+        log_action(user, "Registered Organisation", org.name)
         return Response({
             "success": True,
             "access": str(refresh.access_token),
@@ -239,7 +252,3 @@ class UserDepartmentViewSet(viewsets.ModelViewSet):
         if dept and getattr(dept, "organisation_id", None) != org_id:
             raise ValidationError("Department is not in your organisation.")
         serializer.save()
-
-
-
-

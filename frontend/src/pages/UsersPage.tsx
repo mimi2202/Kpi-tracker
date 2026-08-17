@@ -20,7 +20,10 @@ const inviteSchema = z.object({
 type InviteFormData = z.infer<typeof inviteSchema>
 interface TeamMember { id: string; full_name: string; email: string; role: string; role_display: string; title: string; display_title: string; kpi_progress: number|null; is_active: boolean; team_size?: number; departments?: Array<{id:string;name:string}> }
 interface Department { id: string; name: string; code: string; colour: string }
-const inputS = { width:'100%',border:'1px solid #d1d5db',borderRadius:10,padding:'10px 14px',fontSize:14,outline:'none' } as const
+const inputS = {
+  width: '100%', border: '1px solid hsl(var(--border-subtle))', borderRadius: 10, padding: '10px 14px',
+  fontSize: 14, outline: 'none', backgroundColor: 'hsl(var(--surface-card))', color: 'hsl(var(--text-primary))',
+} as const
 
 function generatePassword() {
   const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789!@#$'
@@ -93,34 +96,44 @@ export default function UsersPage() {
       <div className="flex items-center justify-between"><div><h1 className="text-2xl font-bold">Team Management</h1><p className="text-sm text-gray-500 mt-0.5">{members.length} members</p></div><div className="flex gap-2"><button onClick={fetchTeam} className="btn btn-ghost text-sm"><RefreshCw className="h-4 w-4" /></button>{canManage&&<button onClick={()=>setShowInvite(true)} className="btn btn-primary"><Plus className="h-4 w-4" /> Add Member</button>}</div></div>
       {message&&<div className={`p-3 rounded-xl text-sm ${message.type==='success'?'bg-emerald-50 text-emerald-700':'bg-red-50 text-red-700'}`}>{message.text}</div>}
 
-      <Modal open={showInvite} onClose={()=>setShowInvite(false)} title="Add Team Member" footer={<><button onClick={()=>setShowInvite(false)} style={{padding:'10px 18px',borderRadius:10,border:'none',background:'#f3f4f6',cursor:'pointer',fontSize:14}}>Cancel</button><button type="submit" form="invite-form" disabled={inviting} style={{padding:'10px 18px',borderRadius:10,border:'none',background:'#4f46e5',color:'white',cursor:'pointer',fontSize:14,fontWeight:500}}>{inviting?'Adding...':'Add Member'}</button></>}>
+      <Modal
+        open={showInvite}
+        onClose={()=>setShowInvite(false)}
+        title="Add Team Member"
+        footer={
+          <>
+            <button onClick={()=>setShowInvite(false)} style={{padding:'10px 18px',borderRadius:10,border:'none',background:'hsl(var(--surface-ground))',color:'hsl(var(--text-primary))',cursor:'pointer',fontSize:14}}>Cancel</button>
+            <button type="submit" form="invite-form" disabled={inviting} style={{padding:'10px 18px',borderRadius:10,border:'none',background:'#4f46e5',color:'white',cursor:'pointer',fontSize:14,fontWeight:500}}>{inviting?'Adding...':'Add Member'}</button>
+          </>
+        }
+      >
         <form id="invite-form" onSubmit={handleSubmit(onInvite)} style={{display:'flex',flexDirection:'column',gap:16}}>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-            <div><label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:4}}>First Name <span style={{color:'#ef4444'}}>*</span></label><input {...register('first_name')} style={inputS} />{errors.first_name&&<p style={{fontSize:12,color:'#ef4444',margin:'4px 0 0'}}>{errors.first_name.message}</p>}</div>
-            <div><label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:4}}>Last Name <span style={{color:'#ef4444'}}>*</span></label><input {...register('last_name')} style={inputS} />{errors.last_name&&<p style={{fontSize:12,color:'#ef4444',margin:'4px 0 0'}}>{errors.last_name.message}</p>}</div>
+            <div><label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:4,color:'hsl(var(--text-primary))'}}>First Name <span style={{color:'#ef4444'}}>*</span></label><input {...register('first_name')} style={inputS} />{errors.first_name&&<p style={{fontSize:12,color:'#ef4444',margin:'4px 0 0'}}>{errors.first_name.message}</p>}</div>
+            <div><label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:4,color:'hsl(var(--text-primary))'}}>Last Name <span style={{color:'#ef4444'}}>*</span></label><input {...register('last_name')} style={inputS} />{errors.last_name&&<p style={{fontSize:12,color:'#ef4444',margin:'4px 0 0'}}>{errors.last_name.message}</p>}</div>
           </div>
-          <div><label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:4}}>Email <span style={{color:'#ef4444'}}>*</span></label><input {...register('email')} type="email" style={inputS} />{errors.email&&<p style={{fontSize:12,color:'#ef4444',margin:'4px 0 0'}}>{errors.email.message}</p>}</div>
+          <div><label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:4,color:'hsl(var(--text-primary))'}}>Email <span style={{color:'#ef4444'}}>*</span></label><input {...register('email')} type="email" style={inputS} />{errors.email&&<p style={{fontSize:12,color:'#ef4444',margin:'4px 0 0'}}>{errors.email.message}</p>}</div>
           <div>
-            <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:4}}>Password <span style={{color:'#ef4444'}}>*</span></label>
+            <label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:4,color:'hsl(var(--text-primary))'}}>Password <span style={{color:'#ef4444'}}>*</span></label>
             <div style={{display:'flex',gap:8}}>
               <div style={{position:'relative',flex:1}}>
                 <input {...register('password')} type={showPw?'text':'password'} style={{...inputS,paddingRight:40}} placeholder="Min 8 characters" />
-                <button type="button" onClick={()=>setShowPw(!showPw)} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#9ca3af',fontSize:12}}>{showPw?<EyeOff size={16}/>:<Eye size={16}/>}</button>
+                <button type="button" onClick={()=>setShowPw(!showPw)} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'hsl(var(--text-tertiary))',fontSize:12}}>{showPw?<EyeOff size={16}/>:<Eye size={16}/>}</button>
               </div>
-              <button type="button" onClick={()=>setValue('password',generatePassword())} style={{padding:'10px 14px',borderRadius:10,border:'1px solid #d1d5db',background:'#f9fafb',cursor:'pointer',fontSize:12,whiteSpace:'nowrap'}}>Generate</button>
+              <button type="button" onClick={()=>setValue('password',generatePassword())} style={{padding:'10px 14px',borderRadius:10,border:'1px solid hsl(var(--border-subtle))',background:'hsl(var(--surface-ground))',color:'hsl(var(--text-primary))',cursor:'pointer',fontSize:12,whiteSpace:'nowrap'}}>Generate</button>
             </div>
             {errors.password&&<p style={{fontSize:12,color:'#ef4444',margin:'4px 0 0'}}>{errors.password.message}</p>}
-            <p style={{fontSize:11,color:'#9ca3af',margin:'4px 0 0'}}>User will be prompted to change password on first login</p>
+            <p style={{fontSize:11,color:'hsl(var(--text-tertiary))',margin:'4px 0 0'}}>User will be prompted to change password on first login</p>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-            <div><label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:4}}>Role <span style={{color:'#ef4444'}}>*</span></label><select {...register('role')} style={inputS}><option value="MEMBER">Member</option><option value="TEAM_LEADER">Team Leader</option>{isAdmin&&<option value="ADMIN">Admin</option>}</select></div>
-            <div><label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:4}}>Title <span style={{color:'#9ca3af'}}>(optional)</span></label><select {...register('title')} style={inputS}><option value="">Select</option><option value="TECHNICAL_SUPPORT">Technical Support</option><option value="INTERN">Intern</option><option value="ANALYST">Analyst</option><option value="ENGINEER">Engineer</option><option value="MANAGER">Manager</option><option value="DIRECTOR">Director</option></select></div>
+            <div><label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:4,color:'hsl(var(--text-primary))'}}>Role <span style={{color:'#ef4444'}}>*</span></label><select {...register('role')} style={inputS}><option value="MEMBER">Member</option><option value="TEAM_LEADER">Team Leader</option>{isAdmin&&<option value="ADMIN">Admin</option>}</select></div>
+            <div><label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:4,color:'hsl(var(--text-primary))'}}>Title <span style={{color:'hsl(var(--text-tertiary))'}}>(optional)</span></label><select {...register('title')} style={inputS}><option value="">Select</option><option value="TECHNICAL_SUPPORT">Technical Support</option><option value="INTERN">Intern</option><option value="ANALYST">Analyst</option><option value="ENGINEER">Engineer</option><option value="MANAGER">Manager</option><option value="DIRECTOR">Director</option></select></div>
           </div>
-          <div><label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:4}}><Building2 className="h-3 w-3 inline mr-1" />Department <span style={{color:'#9ca3af'}}>(optional)</span></label><select {...register('department_id')} style={inputS}><option value="">Select department</option>{departments.filter(d=>(d as any).is_active!==false).map(d=><option key={d.id} value={d.id}>{d.name} ({d.code})</option>)}</select></div>
+          <div><label style={{display:'block',fontSize:13,fontWeight:500,marginBottom:4,color:'hsl(var(--text-primary))'}}><Building2 className="h-3 w-3 inline mr-1" />Department <span style={{color:'hsl(var(--text-tertiary))'}}>(optional)</span></label><select {...register('department_id')} style={inputS}><option value="">Select department</option>{departments.filter(d=>(d as any).is_active!==false).map(d=><option key={d.id} value={d.id}>{d.name} ({d.code})</option>)}</select></div>
         </form>
       </Modal>
 
-      <div style={{display:'flex',alignItems:'center',gap:8,padding:'10px 16px',backgroundColor:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:12,maxWidth:400}}><Search className="h-4 w-4 text-gray-400" /><input type="text" placeholder="Search by name or email..." value={search} onChange={(e)=>setSearch(e.target.value)} style={{flex:1,border:'none',background:'transparent',outline:'none',fontSize:14}} /></div>
+      <div style={{display:'flex',alignItems:'center',gap:8,padding:'10px 16px',backgroundColor:'hsl(var(--surface-ground))',border:'1px solid hsl(var(--border-subtle))',borderRadius:12,maxWidth:400}}><Search className="h-4 w-4 text-gray-400" /><input type="text" placeholder="Search by name or email..." value={search} onChange={(e)=>setSearch(e.target.value)} style={{flex:1,border:'none',background:'transparent',outline:'none',fontSize:14,color:'hsl(var(--text-primary))'}} /></div>
 
       {loading?<div className="card p-12 text-center text-gray-500">Loading...</div>:filtered.length===0?<div className="card p-12 text-center"><Shield className="h-12 w-12 mx-auto mb-3 text-gray-300" /><p className="text-gray-500">No team members found.</p>{canManage&&<button onClick={()=>setShowInvite(true)} className="btn btn-primary mt-4"><Plus className="h-4 w-4" /> Add your first member</button>}</div>:(
         <div className="space-y-3">{filtered.map(member=>(

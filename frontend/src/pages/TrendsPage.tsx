@@ -22,7 +22,7 @@ interface TrendRow {
 const FALLBACK = ['#4f46e5', '#059669', '#d97706', '#dc2626', '#7c3aed', '#0891b2', '#db2777', '#65a30d']
 
 export default function TrendsPage() {
-  const [periodType, setPeriodType] = useState<PeriodType>('MONTHLY')
+  const [periodType, setPeriodType] = useState<PeriodType>('WEEKLY')
   const [rows, setRows] = useState<TrendRow[]>([])
   const [periods, setPeriods] = useState<ReportingPeriod[]>([])
   const [loading, setLoading] = useState(true)
@@ -182,7 +182,7 @@ export default function TrendsPage() {
                   <Tooltip content={<CustomTooltip />} />
                   <ReferenceLine y={85} stroke="#059669" strokeDasharray="4 4" strokeOpacity={0.5} label={{ value: 'Target 85%', fontSize: 10, fill: '#059669', position: 'right' }} />
                   {visibleDepts.map(d => (
-                    <Area key={d} type="monotone" dataKey={d} stroke={colours[d]} strokeWidth={2.5}
+                    <Area key={d} type="natural" dataKey={d} stroke={colours[d]} strokeWidth={2.5}
                       fill={`url(#grad-${d.replace(/\s/g, '')})`} connectNulls dot={{ r: 2.5, fill: colours[d] }} activeDot={{ r: 5 }} />
                   ))}
                 </AreaChart>
@@ -194,7 +194,7 @@ export default function TrendsPage() {
                   <Tooltip content={<CustomTooltip />} />
                   <ReferenceLine y={85} stroke="#059669" strokeDasharray="4 4" strokeOpacity={0.5} label={{ value: 'Target 85%', fontSize: 10, fill: '#059669', position: 'right' }} />
                   {visibleDepts.map(d => (
-                    <Line key={d} type="monotone" dataKey={d} stroke={colours[d]} strokeWidth={2.5}
+                    <Line key={d} type="natural" dataKey={d} stroke={colours[d]} strokeWidth={2.5}
                       connectNulls dot={{ r: 2.5, fill: colours[d] }} activeDot={{ r: 5 }} />
                   ))}
                 </LineChart>

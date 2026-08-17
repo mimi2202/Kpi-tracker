@@ -21,6 +21,7 @@ class KPIResultSerializer(serializers.ModelSerializer):
     kpi_name = serializers.CharField(source="kpi.name", read_only=True)
     department_name = serializers.CharField(source="department.name", read_only=True)
     submitted_by_name = serializers.CharField(source="submitted_by.full_name", read_only=True)
+    reviewed_by_name = serializers.CharField(source="reviewed_by.full_name", read_only=True, default="")
     versions = KPIResultVersionSerializer(many=True, read_only=True)
 
     class Meta:
@@ -36,13 +37,14 @@ class KPIResultSerializer(serializers.ModelSerializer):
             "responsible_person", "notes", "corrective_action",
             "root_cause", "due_date", "action_owner",
             "submission_status", "submitted_by", "submitted_by_name",
-            "submitted_date", "reviewed_by", "reviewed_date",
+            "submitted_date", "reviewed_by", "reviewed_by_name", "reviewed_date",
+            "review_comment",
             "version_number", "versions", "created_at", "updated_at",
         ]
         read_only_fields = [
             "id", "achievement_percentage", "variance", "variance_display",
             "rag_status", "trend_status", "submission_status",
-            "submitted_date", "reviewed_date", "version_number",
+            "submitted_date", "reviewed_date", "review_comment", "version_number",
             "created_at", "updated_at",
         ]
 
@@ -55,6 +57,7 @@ class KPIResultEntrySerializer(serializers.ModelSerializer):
     department_name = serializers.CharField(source="department.name", read_only=True, default="")
     period_label = serializers.SerializerMethodField()
     responsible_name = serializers.SerializerMethodField()
+    reviewed_by_name = serializers.CharField(source="reviewed_by.full_name", read_only=True, default="")
     rag_display = serializers.SerializerMethodField()
     trend_icon = serializers.SerializerMethodField()
  
@@ -67,7 +70,7 @@ class KPIResultEntrySerializer(serializers.ModelSerializer):
             "target_value", "target_value_display", "actual_value",
             "achievement_percentage", "variance_display",
             "rag_status", "rag_display", "trend_status", "trend_icon",
-            "submission_status",
+            "submission_status", "review_comment", "reviewed_by_name",
             "responsible_person", "responsible_name",
             "notes", "corrective_action",
             "created_at", "updated_at",
@@ -77,6 +80,7 @@ class KPIResultEntrySerializer(serializers.ModelSerializer):
             "department_name", "period_label",
             "achievement_percentage", "variance_display",
             "rag_status", "rag_display", "trend_status", "trend_icon",
+            "submission_status", "review_comment", "reviewed_by_name",
             "responsible_name", "created_at", "updated_at",
         ]
  

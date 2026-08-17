@@ -16,10 +16,35 @@ function initials(name: string) {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
+// Catmull-Rom → cubic Bezier conversion, standard tension of 1/6. Produces a
+// smooth curve that actually passes through every point, including at local
+// peaks and valleys, unlike monotone interpolation which flattens those out
+// to avoid overshoot. This is what makes the line look like a wave instead
+// of straight segments meeting at sharp angles.
+function smoothPath(pts: readonly (readonly [number, number])[]): string {
+  if (pts.length < 2) return ''
+  if (pts.length === 2) {
+    return `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)} L${pts[1][0].toFixed(1)},${pts[1][1].toFixed(1)}`
+  }
+  const d: string[] = [`M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`]
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] || pts[i]
+    const p1 = pts[i]
+    const p2 = pts[i + 1]
+    const p3 = pts[i + 2] || p2
+    const cp1x = p1[0] + (p2[0] - p0[0]) / 6
+    const cp1y = p1[1] + (p2[1] - p0[1]) / 6
+    const cp2x = p2[0] - (p3[0] - p1[0]) / 6
+    const cp2y = p2[1] - (p3[1] - p1[1]) / 6
+    d.push(`C${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`)
+  }
+  return d.join(' ')
+}
+
 export default function DashboardPage() {
   const currentUser = useAuthStore((s) => s.user)
   const canManage = currentUser?.role === 'ADMIN' || currentUser?.role === 'TEAM_LEADER'
-  const [periodType, setPeriodType] = useState<PeriodType>('MONTHLY')
+  const [periodType, setPeriodType] = useState<PeriodType>('WEEKLY')
   const [selectedPeriodId, setSelectedPeriodId] = useState('')
   const [selectedDeptId, setSelectedDeptId] = useState('')
   const [expandedDeptMembers, setExpandedDeptMembers] = useState<any[]>([])
@@ -409,7 +434,9 @@ export default function DashboardPage() {
                   const y = pad + (h - pad * 2) * (1 - (p.value - min) / range)
                   return [x, y] as const
                 })
-                const line = pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ')
+                // Smooth curve through every point, instead of straight
+                // segments meeting at sharp corners.
+                const line = smoothPath(pts)
                 const area = `${line} L${pts[pts.length - 1][0].toFixed(1)},${h - pad} L${pts[0][0].toFixed(1)},${h - pad} Z`
                 const last = trendPoints[trendPoints.length - 1].value
                 const first = trendPoints[0].value

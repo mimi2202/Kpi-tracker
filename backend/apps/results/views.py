@@ -20,6 +20,7 @@ from apps.accounts.permissions import IsAdminOrTeamLeader, IsOwnerOrManager
 from apps.accounts.models import Role, User
 from apps.kpis.models import KPI, KPIAssignment
 from apps.periods.models import ReportingPeriod
+from core.audit import log_action
 
 
 class KPIResultViewSet(viewsets.ModelViewSet):
@@ -176,6 +177,7 @@ class KPIResultViewSet(viewsets.ModelViewSet):
         try:
             result.submit(request.user)
             self._notify_submit(result, request.user)
+            log_action(request.user, "Submitted KPI Result", result.kpi.code)
             return Response({"success": True, "message": "Submitted."})
         except Exception as e:
             return Response({"success": False, "error": str(e)}, status=400)
@@ -199,6 +201,7 @@ class KPIResultViewSet(viewsets.ModelViewSet):
             try:
                 result.submit(request.user)
                 self._notify_submit(result, request.user)
+                log_action(request.user, "Submitted KPI Result", result.kpi.code)
                 submitted += 1
             except Exception as e:
                 errors.append({"id": str(result.id), "error": str(e)})
@@ -209,8 +212,11 @@ class KPIResultViewSet(viewsets.ModelViewSet):
         try:
             from apps.notifications.models import Notification, NotificationType
             from apps.organisation.models import UserDepartment
+            from core.email import send_notification_email
 
             dept = result.department
+            link = f"/kpi-review/{result.id}"
+            submitter_name = result.responsible_person.full_name if result.responsible_person else "a member"
 
             team_leaders = UserDepartment.objects.filter(
                 department=dept, is_department_head=True
@@ -220,8 +226,16 @@ class KPIResultViewSet(viewsets.ModelViewSet):
                     user=tl.user,
                     notification_type=NotificationType.KPI_SUBMITTED,
                     title="KPI Submitted",
-                    message=f"{result.kpi.code} submitted by {result.responsible_person.full_name if result.responsible_person else 'a member'}",
+                    message=f"{result.kpi.code} submitted by {submitter_name}",
                     kpi_result=result,
+                    link=link,
+                )
+                send_notification_email(
+                    tl.user,
+                    subject=f"KPI Submitted: {result.kpi.code}",
+                    message_lines=[
+                        f"{submitter_name} submitted {result.kpi.code} ({result.kpi.name}) in {dept.name} for review.",
+                    ],
                 )
 
             if result.responsible_person and result.responsible_person.organisation:
@@ -234,31 +248,113 @@ class KPIResultViewSet(viewsets.ModelViewSet):
                         user=admin,
                         notification_type=NotificationType.KPI_SUBMITTED,
                         title="KPI Submitted",
-                        message=f"{result.kpi.code} submitted by {result.responsible_person.full_name if result.responsible_person else 'a member'} in {dept.name}",
+                        message=f"{result.kpi.code} submitted by {submitter_name} in {dept.name}",
                         kpi_result=result,
+                        link=link,
+                    )
+                    send_notification_email(
+                        admin,
+                        subject=f"KPI Submitted: {result.kpi.code}",
+                        message_lines=[
+                            f"{submitter_name} submitted {result.kpi.code} ({result.kpi.name}) in {dept.name} for review.",
+                        ],
                     )
         except Exception:
             import traceback
             traceback.print_exc()
 
+    def _notify_decision(self, result, approved, comment):
+        """Tells the submitter what happened. This is the notification that
+        makes the review outcome visible on their end without them needing to
+        go dig through the chat room.
+        """
+        try:
+            from apps.notifications.models import Notification, NotificationType
+            from core.email import send_notification_email
+
+            if not result.responsible_person:
+                return
+
+            if approved:
+                title = "KPI Approved"
+                message = f"{result.kpi.code} was approved" + (f" — {comment}" if comment else "")
+                notif_type = NotificationType.KPI_APPROVED
+            else:
+                title = "KPI Returned"
+                message = f"{result.kpi.code} was returned: {comment}"
+                notif_type = NotificationType.KPI_RETURNED
+
+            Notification.objects.create(
+                user=result.responsible_person,
+                notification_type=notif_type,
+                title=title,
+                message=message,
+                kpi_result=result,
+                link=f"/kpi-review/{result.id}",
+            )
+            send_notification_email(
+                result.responsible_person,
+                subject=title + f": {result.kpi.code}",
+                message_lines=[message],
+            )
+        except Exception:
+            import traceback
+            traceback.print_exc()
+
+    def _can_review(self, result, user):
+        """Admin can review anything in their org. A team leader can only
+        review results in departments they actually head, matching the same
+        authorization pattern used for KPI assignments.
+        """
+        if user.role == Role.ADMIN:
+            return result.department.organisation_id == user.organisation_id
+        if user.role == Role.TEAM_LEADER:
+            from apps.organisation.models import UserDepartment
+            return UserDepartment.objects.filter(
+                user=user, is_department_head=True, department_id=result.department_id
+            ).exists()
+        return False
+
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
+        """Approves the result. Either a team leader or an admin approving is
+        enough, there's no second sign-off stage to wait on. A reviewer who
+        spots a wrong value can pass actual_value to correct it in the same
+        action, rather than needing a separate edit step.
+        """
         result = self.get_object()
-        serializer = ResultApprovalSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if not self._can_review(result, request.user):
+            return Response({"success": False, "error": "You can't review this KPI."}, status=403)
+
+        actual_value = request.data.get("actual_value")
+        comment = (request.data.get("comment") or "").strip()
+
         try:
-            result.approve(request.user, level=serializer.validated_data["action"])
+            if actual_value is not None and actual_value != "":
+                result.actual_value = Decimal(str(actual_value))
+            result.approve(request.user, comment=comment)
+            self._notify_decision(result, approved=True, comment=comment)
+            log_action(request.user, "Approved KPI Result", result.kpi.code)
             return Response({"success": True, "message": "Approved."})
         except Exception as e:
             return Response({"success": False, "error": str(e)}, status=400)
 
     @action(detail=True, methods=["post"])
     def return_result(self, request, pk=None):
+        """Sends the result back to the submitter. A reason is required, it's
+        what shows up in their notification and stays on the record."""
         result = self.get_object()
-        serializer = ResultApprovalSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if not self._can_review(result, request.user):
+            return Response({"success": False, "error": "You can't review this KPI."}, status=403)
+
+        reason = (request.data.get("return_reason") or request.data.get("reason") or "").strip()
+        if not reason:
+            return Response({"success": False, "error": "A reason is required to return a result."}, status=400)
+
         try:
-            result.return_for_revision(user=request.user, reason=serializer.validated_data.get("return_reason", ""))
+            result.return_for_revision(user=request.user, reason=reason)
+            self._notify_decision(result, approved=False, comment=reason)
+            log_action(request.user, "Returned KPI Result", f"{result.kpi.code}: {reason[:80]}")
             return Response({"success": True, "message": "Returned for revision."})
         except Exception as e:
             return Response({"success": False, "error": str(e)}, status=400)

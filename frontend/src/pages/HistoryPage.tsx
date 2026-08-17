@@ -1,4 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { resultsApi } from '../api/results'
 import { periodsApi, type ReportingPeriod } from '../api/periods'
 import { departmentsApi } from '../api/departments'
@@ -6,13 +7,14 @@ import type { KPIResult, Department } from '../types'
 import { Search, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
 
 export default function HistoryPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [results, setResults] = useState<KPIResult[]>([])
   const [periods, setPeriods] = useState<ReportingPeriod[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(() => searchParams.get('q') || '')
   const [filterDept, setFilterDept] = useState('')
   const [filterPeriod, setFilterPeriod] = useState('')
   const [filterRAG, setFilterRAG] = useState('')
@@ -45,6 +47,17 @@ export default function HistoryPage() {
   }
 
   useEffect(() => { fetchResults() }, [page, sortBy, filterDept, filterPeriod, filterRAG])
+
+  // Arriving from the top bar's global search lands here with ?q=<kpi code>.
+  // Run the search immediately instead of waiting for the user to hit Enter,
+  // and clear the param so it doesn't re-trigger on a later manual refresh.
+  useEffect(() => {
+    const q = searchParams.get('q')
+    if (!q) return
+    fetchResults()
+    setSearchParams({}, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const getRAGClass = (s: string) => s === 'ON_TRACK' ? 'on-track' : s === 'AT_RISK' ? 'at-risk' : s === 'OFF_TRACK' ? 'off-track' : 'no-data'
   const clearFilters = () => { setSearch(''); setFilterDept(''); setFilterPeriod(''); setFilterRAG(''); setPage(1) }

@@ -103,6 +103,12 @@ class User(AbstractUser, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     phone = models.CharField(max_length=20, blank=True)
     is_active = models.BooleanField(default=True)
     email_notifications = models.BooleanField(default=True)
+    theme_preference = models.CharField(
+        max_length=10,
+        choices=[("system", "System"), ("light", "Light"), ("dark", "Dark")],
+        default="system",
+    )
+    period_reminders = models.BooleanField(default=True)
     avatar = models.ImageField(upload_to='avatars/', null=True, blank=True)
     notification_preferences = models.JSONField(default=dict, blank=True)
 

@@ -138,6 +138,10 @@ class KPIResult(UUIDPrimaryKeyMixin, TimestampMixin):
         related_name="reviewed_results",
     )
     reviewed_date = models.DateTimeField(null=True, blank=True)
+    review_comment = models.TextField(
+        blank=True,
+        help_text="Reviewer's note or rejection reason from the most recent decision",
+    )
     version_number = models.IntegerField(default=1)
 
     def submit(self, user):
@@ -146,6 +150,29 @@ class KPIResult(UUIDPrimaryKeyMixin, TimestampMixin):
         self.submission_status = ResultStatus.SUBMITTED
         self.submitted_by = user
         self.submitted_date = timezone.now()
+        self.save()
+
+    def approve(self, user, comment=""):
+        """One approval, from either a team leader or an admin, fully approves
+        the result. There's no second sign-off stage to wait on.
+        """
+        from django.utils import timezone
+        self.submission_status = ResultStatus.FULLY_APPROVED
+        self.reviewed_by = user
+        self.reviewed_date = timezone.now()
+        self.review_comment = comment
+        self.save()
+
+    def return_for_revision(self, user, reason):
+        """Sends the result back to the submitter with a required reason,
+        stored on the record so it's still visible after the notification
+        that carried it gets marked read.
+        """
+        from django.utils import timezone
+        self.submission_status = ResultStatus.RETURNED
+        self.reviewed_by = user
+        self.reviewed_date = timezone.now()
+        self.review_comment = reason
         self.save()
 
     class Meta:

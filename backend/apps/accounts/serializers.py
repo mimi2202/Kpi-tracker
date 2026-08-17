@@ -82,6 +82,7 @@ class UserSerializer(serializers.ModelSerializer):
             "organisation", "role", "role_display", "title", "display_title",
             "custom_title", "manager", "manager_name", "team_size",
             "job_title", "phone", "is_active", "avatar", "departments",
+            "theme_preference", "email_notifications", "period_reminders",
             "created_at", "updated_at",
         ]
         # organisation is server-managed; never let the client reassign it here.

@@ -24,6 +24,7 @@ import ReportsPage from './pages/ReportsPage'
 import ChatJoinPage from './pages/ChatJoinPage'
 import { useAuthStore } from './store/authStore'
 import PresetsPage from './pages/PresetsPage'   
+import KPIReviewPage from './pages/KPIReviewPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -71,6 +72,7 @@ export default function App() {
         <Route path="imports" element={<ImportsPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="reports" element={<ReportsPage />} />
+        <Route path="/kpi-review/:resultId" element={<KPIReviewPage />} />
         <Route path="chat/join/:token" element={<ChatJoinPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
