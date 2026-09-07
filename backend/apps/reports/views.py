@@ -6,8 +6,6 @@ from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 
 from .generators.data import get_report_context
-from .generators.excel_generator import build_excel
-from .generators.pdf_generator import build_pdf
 from .generators.csv_generator import build_csv
 
 VALID_PERIOD_TYPES = {"WEEKLY", "MONTHLY", "QUARTERLY", "ANNUAL"}
@@ -37,6 +35,7 @@ class ExportReportView(APIView):
             return response
 
         if file_format == "excel":
+            from .generators.excel_generator import build_excel
             body = build_excel(context, org_name)
             response = HttpResponse(
                 body,
@@ -45,6 +44,7 @@ class ExportReportView(APIView):
             response["Content-Disposition"] = f'attachment; filename="{filename_base}.xlsx"'
             return response
 
+        from .generators.pdf_generator import build_pdf
         body = build_pdf(context, org_name)
         response = HttpResponse(body, content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="{filename_base}.pdf"'
