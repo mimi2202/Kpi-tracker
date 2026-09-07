@@ -32,13 +32,18 @@ def _parse_csv(file_obj):
 def _parse_excel_or_tracker(file_obj):
     from openpyxl import load_workbook
 
-    wb = load_workbook(file_obj, data_only=True)
+    # FIX: read_only=True loads rows on demand instead of entire file into RAM
+    wb = load_workbook(file_obj, read_only=True, data_only=True)
 
     if tracker_parser.is_tracker_workbook(wb):
-        return tracker_parser.parse_tracker_workbook(wb), "tracker_results"
+        result, kind = tracker_parser.parse_tracker_workbook(wb), "tracker_results"
+        wb.close()  # FIX: explicitly release memory
+        return result, kind
 
     ws = wb.active
     rows = list(ws.iter_rows(values_only=True))
+    wb.close()  # FIX: release memory before processing
+
     if not rows:
         return [], None
 
@@ -49,6 +54,9 @@ def _parse_excel_or_tracker(file_obj):
             continue
         row = {headers[i]: raw[i] for i in range(len(headers)) if i < len(raw)}
         result.append(_normalize_row(row))
+
+    # FIX: clear rows list to free memory
+    rows = None
     return result, None
 
 

@@ -18,6 +18,9 @@ VALID_DIRECTIONS = {"HIGHER_IS_BETTER", "LOWER_IS_BETTER", "EXACT_TARGET", "RANG
 VALID_FREQUENCIES = {"WEEKLY", "MONTHLY", "QUARTERLY", "ANNUAL"}
 DEPT_CODE_IN_NAME = re.compile(r"^(.*?)\s*\(([A-Za-z0-9_\-]+)\)\s*$")
 
+# FIX: Smaller batch size for Render's memory-constrained instances
+BATCH_SIZE = 100
+
 
 def import_rows(rows, kind, organisation_id, dry_run=True):
     if kind == "results":
@@ -62,6 +65,7 @@ def _import_results(rows, organisation_id, dry_run):
     from apps.results.models import KPIResult
 
     errors, imported, skipped = [], 0, 0
+    batch = []
     sp = transaction.savepoint()
 
     for i, row in enumerate(rows, start=2):  # row 1 is the header
@@ -133,9 +137,18 @@ def _import_results(rows, organisation_id, dry_run):
                     responsible_person=kpi.responsible_person,
                 )
                 _apply_actual_value(new_result, actual_value, actual_was_blank, notes)
-                new_result.save()
+                batch.append(new_result)
+
+                # FIX: Flush batch before memory grows too large
+                if len(batch) >= BATCH_SIZE:
+                    KPIResult.objects.bulk_create(batch, batch_size=BATCH_SIZE)
+                    batch = []
 
         imported += 1
+
+    # FIX: Flush remaining batch
+    if batch and not dry_run:
+        KPIResult.objects.bulk_create(batch, batch_size=BATCH_SIZE)
 
     if dry_run:
         transaction.savepoint_rollback(sp)
@@ -345,6 +358,7 @@ def _import_tracker_results(rows, organisation_id, dry_run):
 
     errors, needs_attention, new_departments, new_kpis, new_periods = [], [], [], [], []
     imported, skipped = 0, 0
+    batch = []
     dept_cache, period_cache = {}, {}
     sp = transaction.savepoint()
 
@@ -408,9 +422,16 @@ def _import_tracker_results(rows, organisation_id, dry_run):
                     responsible_person=kpi.responsible_person,
                 )
                 _apply_actual_value(new_result, actual_value, actual_was_blank, row["notes"])
-                new_result.save()
+                batch.append(new_result)
+
+                if len(batch) >= BATCH_SIZE:
+                    KPIResult.objects.bulk_create(batch, batch_size=BATCH_SIZE)
+                    batch = []
 
         imported += 1
+
+    if batch and not dry_run:
+        KPIResult.objects.bulk_create(batch, batch_size=BATCH_SIZE)
 
     if dry_run:
         transaction.savepoint_rollback(sp)
@@ -432,6 +453,7 @@ def _import_tracker_results(rows, organisation_id, dry_run):
 @transaction.atomic
 def _import_definitions(rows, organisation_id, dry_run):
     errors, imported, skipped = [], 0, 0
+    batch = []
     sp = transaction.savepoint()
 
     departments = {d.name.lower(): d for d in Department.objects.filter(organisation_id=organisation_id)}
@@ -472,20 +494,48 @@ def _import_definitions(rows, organisation_id, dry_run):
             continue
 
         if not dry_run:
-            KPI.objects.update_or_create(
-                code=code,
-                defaults={
-                    "name": name,
-                    "department": department,
-                    "target_value": target_value,
-                    "unit_type": "CUSTOM",
-                    "custom_unit": unit,
-                    "calculation_direction": direction,
-                    "reporting_frequency": frequency,
-                },
-            )
+            existing_kpi = KPI.objects.filter(code=code).first()
+            if existing_kpi:
+                existing_kpi.name = name
+                existing_kpi.department = department
+                existing_kpi.target_value = target_value
+                existing_kpi.unit_type = "CUSTOM"
+                existing_kpi.custom_unit = unit
+                existing_kpi.calculation_direction = direction
+                existing_kpi.reporting_frequency = frequency
+                batch.append(existing_kpi)
+            else:
+                batch.append(KPI(
+                    code=code,
+                    name=name,
+                    department=department,
+                    target_value=target_value,
+                    unit_type="CUSTOM",
+                    custom_unit=unit,
+                    calculation_direction=direction,
+                    reporting_frequency=frequency,
+                ))
+
+            if len(batch) >= BATCH_SIZE:
+                KPI.objects.bulk_create(
+                    batch,
+                    batch_size=BATCH_SIZE,
+                    update_conflicts=True,
+                    update_fields=["name", "department", "target_value", "unit_type", "custom_unit", "calculation_direction", "reporting_frequency"],
+                    unique_fields=["code"],
+                )
+                batch = []
 
         imported += 1
+
+    if batch and not dry_run:
+        KPI.objects.bulk_create(
+            batch,
+            batch_size=BATCH_SIZE,
+            update_conflicts=True,
+            update_fields=["name", "department", "target_value", "unit_type", "custom_unit", "calculation_direction", "reporting_frequency"],
+            unique_fields=["code"],
+        )
 
     if dry_run:
         transaction.savepoint_rollback(sp)
