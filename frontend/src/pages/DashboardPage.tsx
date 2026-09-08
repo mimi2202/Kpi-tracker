@@ -1,5 +1,6 @@
 // frontend/src/pages/DashboardPage.tsx
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { dashboardApi, type DashboardSummary, type DepartmentScore, type TrendDataPoint } from '../api/dashboard'
@@ -48,47 +49,53 @@ export default function DashboardPage() {
   const [selectedPeriodId, setSelectedPeriodId] = useState('')
   const [selectedDeptId, setSelectedDeptId] = useState('')
   const [expandedDeptMembers, setExpandedDeptMembers] = useState<any[]>([])
-  const [summary, setSummary] = useState<DashboardSummary | null>(null)
-  const [departments, setDepartments] = useState<DepartmentScore[]>([])
-  const [trends, setTrends] = useState<TrendDataPoint[]>([])
-  const [kpis, setKpis] = useState<KPIResult[]>([])
-  const [periods, setPeriods] = useState<ReportingPeriod[]>([])
-  const [loading, setLoading] = useState(true)
   const [expandedDept, setExpandedDept] = useState<string | null>(null)
 
-  const fetchPeriods = useCallback(async () => {
-    try {
+  // === Periods query — drives the period dropdown. Auto-selects the first
+  // period once loaded, if nothing's selected yet. ===
+  const { data: periodsData } = useQuery({
+    queryKey: ['periods', periodType],
+    queryFn: async () => {
       const res = await periodsApi.list({ period_type: periodType, status: 'OPEN', page_size: 50 })
-      setPeriods(res.data.results)
-      if (res.data.results.length > 0 && !selectedPeriodId) {
-        setSelectedPeriodId(res.data.results[0].id)
-      }
-    } catch (err) { console.error(err) }
-  }, [periodType])
+      return res.data.results
+    },
+  })
+  const periods: ReportingPeriod[] = periodsData || []
 
-  const fetchDashboard = useCallback(async () => {
-    if (!selectedPeriodId) return
-    setLoading(true)
-    try {
-      const params: Record<string, any> = { period_type: periodType, period_id: selectedPeriodId }
-      if (selectedDeptId) params.department_id = selectedDeptId
+  // Keep selectedPeriodId in sync with the loaded list without a useEffect:
+  // if nothing is selected yet and periods have loaded, fall back to the first one.
+  const effectivePeriodId = selectedPeriodId || periods[0]?.id || ''
 
+  // === Dashboard data — summary, departments, trends, KPIs — all keyed off
+  // periodType + effectivePeriodId + selectedDeptId. React Query dedupes and
+  // caches these per key, so navigating away and back is instant if the key
+  // hasn't changed and the cache is still fresh (staleTime in App.tsx). ===
+  const dashboardParams: Record<string, any> = { period_type: periodType, period_id: effectivePeriodId }
+  if (selectedDeptId) dashboardParams.department_id = selectedDeptId
+
+  const { data: dashboardData, isLoading: loading, refetch } = useQuery({
+    queryKey: ['dashboard', periodType, effectivePeriodId, selectedDeptId],
+    queryFn: async () => {
       const [sumRes, deptRes, trendRes, kpiRes] = await Promise.all([
-        dashboardApi.getSummary(params),
-        dashboardApi.getDepartments(params),
-        dashboardApi.getTrends(params),
-        dashboardApi.getKPIs({ ...params, page_size: 200 }),
+        dashboardApi.getSummary(dashboardParams),
+        dashboardApi.getDepartments(dashboardParams),
+        dashboardApi.getTrends(dashboardParams),
+        dashboardApi.getKPIs({ ...dashboardParams, page_size: 200 }),
       ])
-      setSummary(sumRes.data)
-      setDepartments(Array.isArray(deptRes.data) ? deptRes.data : deptRes.data?.results || [])
-      setTrends(Array.isArray(trendRes.data) ? trendRes.data : [])
-      setKpis(kpiRes.data?.results || kpiRes.data || [])
-    } catch (err) { console.error(err) }
-    finally { setLoading(false) }
-  }, [periodType, selectedPeriodId, selectedDeptId])
+      return {
+        summary: sumRes.data as DashboardSummary,
+        departments: (Array.isArray(deptRes.data) ? deptRes.data : deptRes.data?.results || []) as DepartmentScore[],
+        trends: (Array.isArray(trendRes.data) ? trendRes.data : []) as TrendDataPoint[],
+        kpis: (kpiRes.data?.results || kpiRes.data || []) as KPIResult[],
+      }
+    },
+    enabled: !!effectivePeriodId, // don't fire until we actually have a period to query
+  })
 
-  useEffect(() => { fetchPeriods() }, [periodType])
-  useEffect(() => { if (selectedPeriodId) fetchDashboard() }, [selectedPeriodId, selectedDeptId])
+  const summary = dashboardData?.summary ?? null
+  const departments = dashboardData?.departments ?? []
+  const trends = dashboardData?.trends ?? []
+  const kpis = dashboardData?.kpis ?? []
 
   const periodTypes: { value: PeriodType; label: string }[] = [
     { value: 'WEEKLY', label: 'Weekly' },
@@ -121,7 +128,6 @@ export default function DashboardPage() {
     },
   ]
 
-  // #2 — simple overview metrics (counts an admin wants at a glance).
   const totalKpis = kpis.length
   const deptCount = departments.length
   const memberCount = departments.reduce((n, d: any) => n + ((d.team_members?.length) || 0), 0)
@@ -134,7 +140,6 @@ export default function DashboardPage() {
     { label: '% Reported', value: `${pctComplete}%`, icon: CheckCircle2 },
   ]
 
-  // #3 — quick links to important pages (role-gated).
   const quickLinks = [
     { to: '/kpis', label: 'Add KPI', icon: Library, manage: true },
     { to: '/assignments', label: 'Assignments', icon: ClipboardList, manage: true },
@@ -144,9 +149,8 @@ export default function DashboardPage() {
     { to: '/weekly', label: 'Enter Data', icon: Plus, manage: false },
   ].filter(l => !l.manage || canManage)
 
-  const currentPeriod = periods.find(p => p.id === selectedPeriodId)
+  const currentPeriod = periods.find(p => p.id === effectivePeriodId)
 
-  // Trend preview: average achievement per period, in chronological order.
   const trendPoints = (() => {
     const byPeriod: Record<string, { sum: number; n: number }> = {}
     const order: string[] = []
@@ -185,7 +189,7 @@ export default function DashboardPage() {
             {selectedDeptId && <span className="text-[hsl(var(--accent))]"> · Filtered</span>}
           </p>
         </div>
-        <button onClick={fetchDashboard} className="btn btn-ghost text-sm" disabled={loading}>
+        <button onClick={() => refetch()} className="btn btn-ghost text-sm" disabled={loading}>
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
         </button>
       </div>
@@ -204,14 +208,13 @@ export default function DashboardPage() {
           ))}
         </div>
         <select
-          value={selectedPeriodId}
+          value={effectivePeriodId}
           onChange={(e) => setSelectedPeriodId(e.target.value)}
           className="input-field w-52"
         >
           {periods.length === 0 && <option value="">No open periods</option>}
           {periods.map(p => <option key={p.id} value={p.id}>{p.period_label}</option>)}
         </select>
-        {/* #4 — explicit department filter dropdown */}
         <div className="flex items-center gap-1.5">
           <Filter className="h-3.5 w-3.5 text-[hsl(var(--text-tertiary))]" />
           <select
@@ -232,7 +235,7 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* === #2 OVERVIEW METRICS + #3 QUICK LINKS === */}
+      {/* === OVERVIEW METRICS + QUICK LINKS === */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 grid grid-cols-2 sm:grid-cols-4 gap-3">
           {overview.map(m => (
@@ -332,7 +335,6 @@ export default function DashboardPage() {
                       </span>
                     </div>
 
-                    {/* Progress bar */}
                     <div className="w-full h-1.5 rounded-full bg-[hsl(var(--surface-ground))] overflow-hidden mb-3">
                       <div
                         className="h-full rounded-full transition-all duration-700 ease-out"
@@ -434,8 +436,6 @@ export default function DashboardPage() {
                   const y = pad + (h - pad * 2) * (1 - (p.value - min) / range)
                   return [x, y] as const
                 })
-                // Smooth curve through every point, instead of straight
-                // segments meeting at sharp corners.
                 const line = smoothPath(pts)
                 const area = `${line} L${pts[pts.length - 1][0].toFixed(1)},${h - pad} L${pts[0][0].toFixed(1)},${h - pad} Z`
                 const last = trendPoints[trendPoints.length - 1].value

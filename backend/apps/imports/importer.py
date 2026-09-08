@@ -137,6 +137,12 @@ def _import_results(rows, organisation_id, dry_run):
                     responsible_person=kpi.responsible_person,
                 )
                 _apply_actual_value(new_result, actual_value, actual_was_blank, notes)
+                # FIX: bulk_create() bypasses save(), which is where achievement_percentage,
+                # rag_status, variance, and trend_status normally get computed. Without this,
+                # rows imported in bulk keep actual_value but never get their derived fields
+                # calculated, causing dashboard/trend widgets to show blank data.
+                if new_result.actual_value is not None:
+                    new_result._calculate()
                 batch.append(new_result)
 
                 # FIX: Flush batch before memory grows too large
@@ -422,6 +428,10 @@ def _import_tracker_results(rows, organisation_id, dry_run):
                     responsible_person=kpi.responsible_person,
                 )
                 _apply_actual_value(new_result, actual_value, actual_was_blank, row["notes"])
+                # FIX: same as above — bulk_create() bypasses save()/_calculate(),
+                # so compute achievement/RAG/trend manually before batching.
+                if new_result.actual_value is not None:
+                    new_result._calculate()
                 batch.append(new_result)
 
                 if len(batch) >= BATCH_SIZE:
