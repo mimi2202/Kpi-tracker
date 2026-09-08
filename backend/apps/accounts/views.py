@@ -38,7 +38,6 @@ class LoginView(TokenObtainPairView):
         serializer = LoginSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         user = serializer.validated_data["user"]
-        print("DEBUG LOGIN — user.organisation_id:", user.organisation_id)  # TEMP
         refresh = RefreshToken.for_user(user)
         return Response({
             "success": True,
