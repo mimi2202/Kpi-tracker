@@ -496,3 +496,23 @@ div[style*="overflow-y: auto"]::-webkit-scrollbar-thumb:hover {
 .dark .text-blue-700 { color: hsl(217 70% 78%) !important; }
 
 .dark .bg-gray-200 { background-color: hsl(var(--border-default)) !important; }
+
+/* === INPUT === */
+.input-field {
+  background: hsl(var(--surface-ground));
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 9px 14px;
+  font-size: 0.875rem;
+  transition: all var(--duration-fast) var(--ease-out-expo);
+  width: 100%;
+  color: hsl(var(--text-primary));
+}
+.input-field:hover { background: hsl(var(--surface-card)); border-color: hsl(var(--border-default)); }
+.input-field:focus,
+.input-field:focus-within {
+  outline: none;
+  background: hsl(var(--surface-card));
+  border-color: hsl(var(--accent));
+  box-shadow: 0 0 0 4px hsl(var(--accent-glow));
+}
