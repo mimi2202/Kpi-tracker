@@ -43,7 +43,7 @@ class Title(models.TextChoices):
 
 class Organisation(UUIDPrimaryKeyMixin, TimestampMixin):
     """Top-level organization."""
-    name = models.CharField(max_length=200, unique=True)
+    name = models.CharField(max_length=200)
     slug = models.SlugField(max_length=200, unique=True)
     logo = models.ImageField(upload_to="logos/", null=True, blank=True)
     created_by = models.ForeignKey(
