@@ -67,6 +67,10 @@ def _import_results(rows, organisation_id, dry_run):
     errors, imported, skipped = [], 0, 0
     batch = []
     sp = transaction.savepoint()
+    # See the matching comment in _import_tracker_results: guards against two
+    # rows in the same file targeting the same (kpi, period, responsible_person)
+    # both being queued as NEW objects before either has actually hit the DB.
+    pending_by_key = {}
 
     for i, row in enumerate(rows, start=2):  # row 1 is the header
         kpi_code = (row.get("kpi_code") or "").strip()
@@ -119,36 +123,45 @@ def _import_results(rows, organisation_id, dry_run):
                 _apply_actual_value(existing, actual_value, actual_was_blank, notes)
                 existing.save()
             else:
-                new_result = KPIResult(
-                    kpi=kpi,
-                    department=kpi.department,
-                    reporting_period=period,
-                    period_type=period.period_type,
-                    period_label=period.label,
-                    period_start_date=period.start_date,
-                    period_end_date=period.end_date,
-                    reporting_year=period.reporting_year,
-                    week_number=period.week_number,
-                    month=period.month,
-                    quarter=period.quarter,
-                    target_value=kpi.target_value,
-                    calculation_direction=kpi.calculation_direction,
-                    warning_threshold=kpi.warning_threshold,
-                    responsible_person=kpi.responsible_person,
-                )
-                _apply_actual_value(new_result, actual_value, actual_was_blank, notes)
-                # bulk_create() bypasses save(), which is where achievement_percentage,
-                # rag_status, variance, and trend_status normally get computed. Without this,
-                # rows imported in bulk keep actual_value but never get their derived fields
-                # calculated, causing dashboard/trend widgets to show blank data.
-                if new_result.actual_value is not None:
-                    new_result._calculate()
-                batch.append(new_result)
+                key = (kpi.id, period.id, kpi.responsible_person_id)
+                pending = pending_by_key.get(key)
+                if pending is not None:
+                    _apply_actual_value(pending, actual_value, actual_was_blank, notes)
+                    if pending.actual_value is not None:
+                        pending._calculate()
+                else:
+                    new_result = KPIResult(
+                        kpi=kpi,
+                        department=kpi.department,
+                        reporting_period=period,
+                        period_type=period.period_type,
+                        period_label=period.label,
+                        period_start_date=period.start_date,
+                        period_end_date=period.end_date,
+                        reporting_year=period.reporting_year,
+                        week_number=period.week_number,
+                        month=period.month,
+                        quarter=period.quarter,
+                        target_value=kpi.target_value,
+                        calculation_direction=kpi.calculation_direction,
+                        warning_threshold=kpi.warning_threshold,
+                        responsible_person=kpi.responsible_person,
+                    )
+                    _apply_actual_value(new_result, actual_value, actual_was_blank, notes)
+                    # bulk_create() bypasses save(), which is where achievement_percentage,
+                    # rag_status, variance, and trend_status normally get computed. Without this,
+                    # rows imported in bulk keep actual_value but never get their derived fields
+                    # calculated, causing dashboard/trend widgets to show blank data.
+                    if new_result.actual_value is not None:
+                        new_result._calculate()
+                    batch.append(new_result)
+                    pending_by_key[key] = new_result
 
-                # FIX: Flush batch before memory grows too large
-                if len(batch) >= BATCH_SIZE:
-                    KPIResult.objects.bulk_create(batch, batch_size=BATCH_SIZE)
-                    batch = []
+                    # FIX: Flush batch before memory grows too large
+                    if len(batch) >= BATCH_SIZE:
+                        KPIResult.objects.bulk_create(batch, batch_size=BATCH_SIZE)
+                        batch = []
+                        pending_by_key = {}
 
         imported += 1
 
@@ -378,6 +391,14 @@ def _import_tracker_results(rows, organisation_id, dry_run):
     dept_cache, period_cache = {}, {}
     sp = transaction.savepoint()
     assumed_year_flagged = False
+    # Tracks (kpi_id, period_id, responsible_person_id) -> the KPIResult object
+    # already queued in `batch` for that combination, within this one import run.
+    # Needed because the current-period sheet and a Trend sheet can both cover
+    # the same week (e.g. W26 appears in both), and bulk_create() only checks
+    # the DB for existing rows, not what's already sitting unsaved in `batch` —
+    # without this, two rows targeting the same KPIResult both get queued as
+    # NEW objects and the batch insert fails against unique_kpi_period_result.
+    pending_by_key = {}
 
     for i, row in enumerate(rows, start=1):
         location = f"{row['period_type'].title()} sheet, row {i} ({row['department']} / {row['kpi_name']})"
@@ -433,33 +454,47 @@ def _import_tracker_results(rows, organisation_id, dry_run):
                 _apply_actual_value(existing, actual_value, actual_was_blank, row["notes"])
                 existing.save()
             else:
-                new_result = KPIResult(
-                    kpi=kpi,
-                    department=kpi.department,
-                    reporting_period=period,
-                    period_type=period.period_type,
-                    period_label=period.label,
-                    period_start_date=period.start_date,
-                    period_end_date=period.end_date,
-                    reporting_year=period.reporting_year,
-                    week_number=period.week_number,
-                    month=period.month,
-                    quarter=period.quarter,
-                    target_value=kpi.target_value,
-                    calculation_direction=kpi.calculation_direction,
-                    warning_threshold=kpi.warning_threshold,
-                    responsible_person=kpi.responsible_person,
-                )
-                _apply_actual_value(new_result, actual_value, actual_was_blank, row["notes"])
-                # bulk_create() bypasses save()/_calculate(), so compute
-                # achievement/RAG/trend manually before batching.
-                if new_result.actual_value is not None:
-                    new_result._calculate()
-                batch.append(new_result)
+                key = (kpi.id, period.id, kpi.responsible_person_id)
+                pending = pending_by_key.get(key)
+                if pending is not None:
+                    # Same (kpi, period, responsible_person) already queued earlier
+                    # in this run — e.g. the current-week sheet and a Trend sheet
+                    # column both covering the same week. Update the pending
+                    # object in place instead of queuing a second one, which
+                    # would otherwise violate unique_kpi_period_result on insert.
+                    _apply_actual_value(pending, actual_value, actual_was_blank, row["notes"])
+                    if pending.actual_value is not None:
+                        pending._calculate()
+                else:
+                    new_result = KPIResult(
+                        kpi=kpi,
+                        department=kpi.department,
+                        reporting_period=period,
+                        period_type=period.period_type,
+                        period_label=period.label,
+                        period_start_date=period.start_date,
+                        period_end_date=period.end_date,
+                        reporting_year=period.reporting_year,
+                        week_number=period.week_number,
+                        month=period.month,
+                        quarter=period.quarter,
+                        target_value=kpi.target_value,
+                        calculation_direction=kpi.calculation_direction,
+                        warning_threshold=kpi.warning_threshold,
+                        responsible_person=kpi.responsible_person,
+                    )
+                    _apply_actual_value(new_result, actual_value, actual_was_blank, row["notes"])
+                    # bulk_create() bypasses save()/_calculate(), so compute
+                    # achievement/RAG/trend manually before batching.
+                    if new_result.actual_value is not None:
+                        new_result._calculate()
+                    batch.append(new_result)
+                    pending_by_key[key] = new_result
 
-                if len(batch) >= BATCH_SIZE:
-                    KPIResult.objects.bulk_create(batch, batch_size=BATCH_SIZE)
-                    batch = []
+                    if len(batch) >= BATCH_SIZE:
+                        KPIResult.objects.bulk_create(batch, batch_size=BATCH_SIZE)
+                        batch = []
+                        pending_by_key = {}  # everything in this chunk is now actually in the DB
 
         imported += 1
 
