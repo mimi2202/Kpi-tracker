@@ -64,7 +64,7 @@ def _apply_actual_value(existing_or_new, actual_value, actual_was_blank, notes):
 def _import_results(rows, organisation_id, dry_run):
     from apps.results.models import KPIResult
 
-    errors, imported, skipped = [], 0, 0
+    errors, imported, skipped, needs_attention = [], 0, 0, []
     batch = []
     sp = transaction.savepoint()
     # See the matching comment in _import_tracker_results: guards against two
@@ -121,14 +121,29 @@ def _import_results(rows, organisation_id, dry_run):
             existing = KPIResult.objects.filter(kpi=kpi, reporting_period=period).first()
             if existing:
                 _apply_actual_value(existing, actual_value, actual_was_blank, notes)
-                existing.save()
+                # save() calls _calculate() internally, which can raise for a
+                # KPI whose target is still the auto-created placeholder of 0.
+                # Flag it rather than aborting the whole import over one row.
+                try:
+                    existing.save()
+                except ValueError as e:
+                    needs_attention.append(
+                        f"Row {i}: could not calculate achievement for '{kpi_code}' — {e}. "
+                        f"Set a real target for this KPI in KPI Library."
+                    )
             else:
                 key = (kpi.id, period.id, kpi.responsible_person_id)
                 pending = pending_by_key.get(key)
                 if pending is not None:
                     _apply_actual_value(pending, actual_value, actual_was_blank, notes)
                     if pending.actual_value is not None:
-                        pending._calculate()
+                        try:
+                            pending._calculate()
+                        except ValueError as e:
+                            needs_attention.append(
+                                f"Row {i}: could not calculate achievement for '{kpi_code}' — {e}. "
+                                f"Set a real target for this KPI in KPI Library."
+                            )
                 else:
                     new_result = KPIResult(
                         kpi=kpi,
@@ -153,7 +168,13 @@ def _import_results(rows, organisation_id, dry_run):
                     # rows imported in bulk keep actual_value but never get their derived fields
                     # calculated, causing dashboard/trend widgets to show blank data.
                     if new_result.actual_value is not None:
-                        new_result._calculate()
+                        try:
+                            new_result._calculate()
+                        except ValueError as e:
+                            needs_attention.append(
+                                f"Row {i}: could not calculate achievement for '{kpi_code}' — {e}. "
+                                f"Set a real target for this KPI in KPI Library."
+                            )
                     batch.append(new_result)
                     pending_by_key[key] = new_result
 
@@ -174,7 +195,7 @@ def _import_results(rows, organisation_id, dry_run):
     else:
         transaction.savepoint_commit(sp)
 
-    return {"total": len(rows), "imported": imported, "skipped": skipped, "errors": errors}
+    return {"total": len(rows), "imported": imported, "skipped": skipped, "errors": errors, "needs_attention": needs_attention}
 
 
 def _generate_kpi_code(department):
@@ -452,7 +473,13 @@ def _import_tracker_results(rows, organisation_id, dry_run):
             existing = KPIResult.objects.filter(kpi=kpi, reporting_period=period).first()
             if existing:
                 _apply_actual_value(existing, actual_value, actual_was_blank, row["notes"])
-                existing.save()
+                try:
+                    existing.save()
+                except ValueError as e:
+                    needs_attention.append(
+                        f"{kpi_label} ({period.label}): could not calculate achievement — {e}. "
+                        f"Set a real target for this KPI in KPI Library."
+                    )
             else:
                 key = (kpi.id, period.id, kpi.responsible_person_id)
                 pending = pending_by_key.get(key)
@@ -464,7 +491,13 @@ def _import_tracker_results(rows, organisation_id, dry_run):
                     # would otherwise violate unique_kpi_period_result on insert.
                     _apply_actual_value(pending, actual_value, actual_was_blank, row["notes"])
                     if pending.actual_value is not None:
-                        pending._calculate()
+                        try:
+                            pending._calculate()
+                        except ValueError as e:
+                            needs_attention.append(
+                                f"{kpi_label} ({period.label}): could not calculate achievement — {e}. "
+                                f"Set a real target for this KPI in KPI Library."
+                            )
                 else:
                     new_result = KPIResult(
                         kpi=kpi,
@@ -485,9 +518,21 @@ def _import_tracker_results(rows, organisation_id, dry_run):
                     )
                     _apply_actual_value(new_result, actual_value, actual_was_blank, row["notes"])
                     # bulk_create() bypasses save()/_calculate(), so compute
-                    # achievement/RAG/trend manually before batching.
+                    # achievement/RAG/trend manually before batching. This can
+                    # legitimately raise — e.g. a HIGHER_IS_BETTER KPI whose
+                    # target is still the auto-created placeholder of 0 has no
+                    # meaningful percentage to compute against. Rather than
+                    # aborting the whole import over one bad KPI, leave that
+                    # result's calculated fields at their model defaults and
+                    # flag it so whoever's importing knows to fix the target.
                     if new_result.actual_value is not None:
-                        new_result._calculate()
+                        try:
+                            new_result._calculate()
+                        except ValueError as e:
+                            needs_attention.append(
+                                f"{kpi_label} ({period.label}): could not calculate achievement — {e}. "
+                                f"Set a real target for this KPI in KPI Library."
+                            )
                     batch.append(new_result)
                     pending_by_key[key] = new_result
 
