@@ -18,8 +18,12 @@ VALID_DIRECTIONS = {"HIGHER_IS_BETTER", "LOWER_IS_BETTER", "EXACT_TARGET", "RANG
 VALID_FREQUENCIES = {"WEEKLY", "MONTHLY", "QUARTERLY", "ANNUAL"}
 DEPT_CODE_IN_NAME = re.compile(r"^(.*?)\s*\(([A-Za-z0-9_\-]+)\)\s*$")
 
-# FIX: Smaller batch size for Render's memory-constrained instances
-BATCH_SIZE = 100
+# Smaller batch size for Render's memory-constrained instances. Lowered
+# further after a 239-row tracker import (creating many new Departments,
+# KPIs, and Periods in one request) triggered a SIGKILL on the free tier's
+# 512MB ceiling — a smaller batch means less unflushed data sitting in
+# memory between bulk_create() calls.
+BATCH_SIZE = 25
 
 
 def import_rows(rows, kind, organisation_id, dry_run=True):
