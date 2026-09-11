@@ -265,7 +265,7 @@ def _get_or_create_department(cache, organisation_id, raw_name, dry_run):
     return department, True, name
 
 
-def _get_or_create_kpi(department, kpi_name, target_value, period_type, dry_run):
+def _get_or_create_kpi(cache, department, kpi_name, target_value, period_type, dry_run):
     """Looks up an existing KPI by department + name. If missing, auto-creates
     one from the row's own data, this is a first-time migration path, so
     requiring KPIs to already exist would block every row on day one.
@@ -274,8 +274,24 @@ def _get_or_create_kpi(department, kpi_name, target_value, period_type, dry_run)
     placeholder target of 0 instead, and the caller is told via needs_target
     so it can flag that this KPI needs an admin to set the real value.
 
-    Returns (kpi, was_created, needs_target).
+    `cache` is keyed by (department name, kpi name) and shared across the
+    whole import run. A wide Trend sheet references the same KPI once per
+    period column (e.g. once per week, for up to a dozen weeks), and without
+    this cache every one of those rows re-queried the database for a KPI
+    that had already been resolved a few rows earlier — a meaningful chunk
+    of the query volume that was contributing to memory pressure on large
+    trend imports.
+
+    Returns (kpi, was_created_this_call, needs_target). was_created_this_call
+    is only True the very first time this (department, kpi_name) pair is
+    resolved in this run, even though later calls still return the same kpi
+    object from cache — this is what stops needs_target from being reported
+    once per row instead of once per KPI.
     """
+    cache_key = (department.name.lower(), kpi_name.lower())
+    if cache_key in cache:
+        return cache[cache_key], False, False
+
     if isinstance(department, SimpleNamespace):
         # A brand-new, not-yet-persisted department in a dry run, nothing
         # could possibly exist under it yet, so skip the query entirely.
@@ -289,6 +305,7 @@ def _get_or_create_kpi(department, kpi_name, target_value, period_type, dry_run)
         )
 
     if kpi:
+        cache[cache_key] = kpi
         return kpi, False, False
 
     needs_target = target_value is None
@@ -304,6 +321,7 @@ def _get_or_create_kpi(department, kpi_name, target_value, period_type, dry_run)
             warning_threshold=Decimal("0.85"),
             responsible_person=None,
         )
+        cache[cache_key] = stub
         return stub, True, needs_target
 
     kpi = KPI.objects.create(
@@ -316,6 +334,7 @@ def _get_or_create_kpi(department, kpi_name, target_value, period_type, dry_run)
         unit_type="NUMBER",
         warning_threshold=Decimal("0.85"),
     )
+    cache[cache_key] = kpi
     return kpi, True, needs_target
 
 
@@ -362,17 +381,25 @@ def _build_period_fields(period_type, ref_date):
 def _get_or_create_period(cache, period_type, ref_date, dry_run):
     """Returns (period, was_created). Cached per import run for the same reason
     department creation is, one new period shouldn't get recreated per row.
+
+    Checks the cache BEFORE querying the database. The previous version
+    queried the DB unconditionally on every call and only consulted the
+    cache after a miss — meaning a period already resolved a few rows
+    earlier still triggered a fresh database round-trip on every subsequent
+    row referencing it. For a Trend sheet with a dozen weekly columns
+    across many KPIs, that was a large share of the total query volume.
     """
+    fields = _build_period_fields(period_type, ref_date)
+    cache_key = (period_type, fields["reporting_year"], fields["week_number"], fields["month"], fields["quarter"])
+    if cache_key in cache:
+        return cache[cache_key], False
+
     period = ReportingPeriod.objects.filter(
         period_type=period_type, start_date__lte=ref_date, end_date__gte=ref_date
     ).first()
     if period:
+        cache[cache_key] = period
         return period, False
-
-    fields = _build_period_fields(period_type, ref_date)
-    cache_key = (period_type, fields["reporting_year"], fields["week_number"], fields["month"], fields["quarter"])
-    if cache_key in cache:
-        return cache[cache_key], True
 
     if dry_run:
         stub = SimpleNamespace(period_type=period_type, **fields)
@@ -413,7 +440,7 @@ def _import_tracker_results(rows, organisation_id, dry_run):
     errors, needs_attention, new_departments, new_kpis, new_periods = [], [], [], [], []
     imported, skipped = 0, 0
     batch = []
-    dept_cache, period_cache = {}, {}
+    dept_cache, period_cache, kpi_cache = {}, {}, {}
     sp = transaction.savepoint()
     assumed_year_flagged = False
     # Tracks (kpi_id, period_id, responsible_person_id) -> the KPIResult object
@@ -449,7 +476,7 @@ def _import_tracker_results(rows, organisation_id, dry_run):
         target_value = _to_decimal(row.get("target"), "Target", i, errors)
 
         kpi, kpi_created, needs_target = _get_or_create_kpi(
-            department, row["kpi_name"], target_value, row["period_type"], dry_run
+            kpi_cache, department, row["kpi_name"], target_value, row["period_type"], dry_run
         )
         kpi_label = f"{dept_display_name} / {row['kpi_name']}"
         if kpi_created:
