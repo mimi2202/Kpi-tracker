@@ -41,7 +41,18 @@ def dashboard_trends(request):
         period_type=request.query_params.get("period_type"),
         period_id=request.query_params.get("period_id"),
     )
+    # FIX: this view previously never read department_id at all — it only
+    # looked for a plural "departments" list param that the frontend never
+    # sends, so clicking a department card had zero effect on the trend
+    # data returned here. Accept both: a single department_id (what the
+    # dashboard's trend widget actually sends) folded into a one-item list,
+    # OR an explicit multi-department "departments" list if a caller wants
+    # to compare several departments at once — either way ends up as the
+    # same list shape get_trend_data() already expects.
+    department_id = request.query_params.get("department_id")
     departments = request.query_params.getlist("departments")
+    if department_id:
+        departments = [department_id]
     return Response(service.get_trend_data(departments=departments if departments else None))
 
 

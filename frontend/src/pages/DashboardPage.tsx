@@ -426,24 +426,33 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* === TREND PREVIEW (click → Trends page) === */}
-          <Link to="/trends" className="card p-5 block hover:shadow-md transition-shadow">
-            <div className="flex items-center justify-between mb-3">
+          {/* === ACHIEVEMENT TREND (full-size, department-aware) === */}
+          <div className="card p-6">
+            <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-[hsl(var(--text-tertiary))]" />
+                <TrendingUp className="h-5 w-5 text-[hsl(var(--text-tertiary))]" />
                 <h2 className="text-sm font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
                   Achievement Trend
+                  {selectedDeptId && (
+                    <span className="text-[hsl(var(--accent))] normal-case font-medium">
+                      {' — '}{departments.find((d: any) => d.id === selectedDeptId)?.department_name || 'Selected department'}
+                    </span>
+                  )}
                 </h2>
               </div>
-              <span className="text-xs text-[hsl(var(--accent))]">View details →</span>
+              <Link to="/trends" className="text-xs text-[hsl(var(--accent))] hover:underline flex-shrink-0">
+                View full trends →
+              </Link>
             </div>
             {trendPoints.length < 2 ? (
-              <p className="text-sm text-[hsl(var(--text-tertiary))] py-6 text-center">
-                Not enough data yet — trends appear once you have results across multiple periods.
+              <p className="text-sm text-[hsl(var(--text-tertiary))] py-16 text-center">
+                {selectedDeptId
+                  ? "Not enough data yet for this department — trends appear once it has results across multiple periods."
+                  : "Not enough data yet — trends appear once you have results across multiple periods."}
               </p>
             ) : (
               (() => {
-                const w = 640, h = 90, pad = 6
+                const w = 960, h = 220, pad = 10
                 const vals = trendPoints.map(p => p.value)
                 const min = Math.min(...vals, 0)
                 const max = Math.max(...vals, 100)
@@ -462,18 +471,21 @@ export default function DashboardPage() {
                 const stroke = up ? 'hsl(var(--status-on-track))' : 'hsl(var(--status-off-track))'
                 return (
                   <div>
-                    <div className="flex items-baseline gap-2 mb-2">
-                      <span className="text-2xl font-bold">{last.toFixed(1)}%</span>
-                      <span className={`text-xs font-medium ${up ? 'text-emerald-600' : 'text-red-600'}`}>
+                    <div className="flex items-baseline gap-3 mb-4">
+                      <span className="text-4xl font-bold tracking-tight">{last.toFixed(1)}%</span>
+                      <span className={`text-sm font-medium ${up ? 'text-emerald-600' : 'text-red-600'}`}>
                         {up ? '▲' : '▼'} {Math.abs(last - first).toFixed(1)}% vs first period
                       </span>
+                      <span className="text-xs text-[hsl(var(--text-tertiary))] ml-auto">
+                        {trendPoints.length} periods
+                      </span>
                     </div>
-                    <svg viewBox={`0 0 ${w} ${h}`} className="w-full" style={{ height: 90 }} preserveAspectRatio="none">
+                    <svg viewBox={`0 0 ${w} ${h}`} className="w-full" style={{ height: 260 }} preserveAspectRatio="none">
                       <path d={area} fill={stroke} opacity="0.08" />
-                      <path d={line} fill="none" stroke={stroke} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-                      {pts.map(([x, y], i) => <circle key={i} cx={x} cy={y} r="2.5" fill={stroke} />)}
+                      <path d={line} fill="none" stroke={stroke} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+                      {pts.map(([x, y], i) => <circle key={i} cx={x} cy={y} r="3.5" fill={stroke} />)}
                     </svg>
-                    <div className="flex justify-between mt-1 text-[10px] text-[hsl(var(--text-tertiary))]">
+                    <div className="flex justify-between mt-2 text-xs text-[hsl(var(--text-tertiary))]">
                       <span>{trendPoints[0].label}</span>
                       <span>{trendPoints[trendPoints.length - 1].label}</span>
                     </div>
@@ -481,7 +493,7 @@ export default function DashboardPage() {
                 )
               })()
             )}
-          </Link>
+          </div>
 
           <div className="card overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-[hsl(var(--border-subtle))]">
