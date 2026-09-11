@@ -137,7 +137,7 @@ def _import_results(rows, organisation_id, dry_run):
                     responsible_person=kpi.responsible_person,
                 )
                 _apply_actual_value(new_result, actual_value, actual_was_blank, notes)
-                # FIX: bulk_create() bypasses save(), which is where achievement_percentage,
+                # bulk_create() bypasses save(), which is where achievement_percentage,
                 # rag_status, variance, and trend_status normally get computed. Without this,
                 # rows imported in bulk keep actual_value but never get their derived fields
                 # calculated, causing dashboard/trend widgets to show blank data.
@@ -355,6 +355,16 @@ def _import_tracker_results(rows, organisation_id, dry_run):
     row when missing, this is the path a brand-new organisation hits on its
     first import, so nothing can be required to pre-exist.
 
+    Rows can now come from three different sheet shapes in the same workbook
+    (long-format period sheets, the History Tracker bulk sheet, and wide
+    Trend sheets) — tracker_parser.py normalizes all of them to the same row
+    shape before they ever reach this function, so nothing here needs to
+    know or care which sheet a given row came from. The one exception is
+    the 'assumed_year' flag: Weekly/Monthly Trend columns carry no year on
+    the sheet itself, so tracker_parser assumes the current year for those
+    and flags it here so the person importing sees a clear one-time notice
+    rather than a silent guess.
+
     One simplification worth knowing: a KPI is matched by department + name
     only, not by which sheet (Weekly/Monthly/etc) it came from. If the same
     objective text appears on more than one sheet, they're treated as the
@@ -367,9 +377,22 @@ def _import_tracker_results(rows, organisation_id, dry_run):
     batch = []
     dept_cache, period_cache = {}, {}
     sp = transaction.savepoint()
+    assumed_year_flagged = False
 
     for i, row in enumerate(rows, start=1):
         location = f"{row['period_type'].title()} sheet, row {i} ({row['department']} / {row['kpi_name']})"
+
+        # A Weekly/Monthly Trend column has no year on the sheet itself, so
+        # tracker_parser assumed the current year for it. Surface that once,
+        # not once per row — with this many weekly/monthly columns, a
+        # per-row message would flood the preview and bury everything else.
+        if row.get("assumed_year") and not assumed_year_flagged:
+            assumed_year_flagged = True
+            needs_attention.append(
+                f"Some periods came from Weekly/Monthly Trend columns that don't include a year on the "
+                f"sheet, so {date.today().year} was assumed for those. Check Reporting Periods afterwards "
+                f"if your tracker actually spans a different year."
+            )
 
         department, dept_created, dept_display_name = _get_or_create_department(
             dept_cache, organisation_id, row["department"], dry_run
@@ -428,8 +451,8 @@ def _import_tracker_results(rows, organisation_id, dry_run):
                     responsible_person=kpi.responsible_person,
                 )
                 _apply_actual_value(new_result, actual_value, actual_was_blank, row["notes"])
-                # FIX: same as above — bulk_create() bypasses save()/_calculate(),
-                # so compute achievement/RAG/trend manually before batching.
+                # bulk_create() bypasses save()/_calculate(), so compute
+                # achievement/RAG/trend manually before batching.
                 if new_result.actual_value is not None:
                     new_result._calculate()
                 batch.append(new_result)
