@@ -66,9 +66,9 @@ export default function DashboardPage() {
   // if nothing is selected yet and periods have loaded, fall back to the first one.
   const effectivePeriodId = selectedPeriodId || periods[0]?.id || ''
 
-  // === Dashboard data — summary, departments, trends, KPIs — all keyed off
-  // periodType + effectivePeriodId + selectedDeptId. React Query dedupes and
-  // caches these per key, so navigating away and back is instant if the key
+  // === Dashboard data — summary, departments, KPIs — all keyed off
+  // periodType + effectivePeriodId + selectedDeptId. React Query caches
+  // these per key, so navigating away and back is instant if the key
   // hasn't changed and the cache is still fresh (staleTime in App.tsx). ===
   const dashboardParams: Record<string, any> = { period_type: periodType, period_id: effectivePeriodId }
   if (selectedDeptId) dashboardParams.department_id = selectedDeptId
@@ -76,16 +76,14 @@ export default function DashboardPage() {
   const { data: dashboardData, isLoading: loading, refetch } = useQuery({
     queryKey: ['dashboard', periodType, effectivePeriodId, selectedDeptId],
     queryFn: async () => {
-      const [sumRes, deptRes, trendRes, kpiRes] = await Promise.all([
+      const [sumRes, deptRes, kpiRes] = await Promise.all([
         dashboardApi.getSummary(dashboardParams),
         dashboardApi.getDepartments(dashboardParams),
-        dashboardApi.getTrends(dashboardParams),
         dashboardApi.getKPIs({ ...dashboardParams, page_size: 200 }),
       ])
       return {
         summary: sumRes.data as DashboardSummary,
         departments: (Array.isArray(deptRes.data) ? deptRes.data : deptRes.data?.results || []) as DepartmentScore[],
-        trends: (Array.isArray(trendRes.data) ? trendRes.data : []) as TrendDataPoint[],
         kpis: (kpiRes.data?.results || kpiRes.data || []) as KPIResult[],
       }
     },
@@ -94,8 +92,28 @@ export default function DashboardPage() {
 
   const summary = dashboardData?.summary ?? null
   const departments = dashboardData?.departments ?? []
-  const trends = dashboardData?.trends ?? []
   const kpis = dashboardData?.kpis ?? []
+
+  // === Trend data — deliberately NOT filtered by effectivePeriodId. The
+  // trend widget needs history ACROSS periods of this type (e.g. every
+  // Weekly period a department has data for), not a snapshot of whichever
+  // single period the dropdown above happens to have selected. Reusing
+  // dashboardParams here (which included period_id) was the actual bug:
+  // it silently restricted the trend to one period's worth of data even
+  // when the selected department had real multi-period history sitting
+  // right there in the database — this query intentionally omits period_id
+  // so it always looks across the full history for periodType instead. ===
+  const trendParams: Record<string, any> = { period_type: periodType }
+  if (selectedDeptId) trendParams.department_id = selectedDeptId
+
+  const { data: trendSeriesData } = useQuery({
+    queryKey: ['dashboard-trend', periodType, selectedDeptId],
+    queryFn: async () => {
+      const res = await dashboardApi.getTrends(trendParams)
+      return (Array.isArray(res.data) ? res.data : []) as TrendDataPoint[]
+    },
+  })
+  const trends = trendSeriesData ?? []
 
   const periodTypes: { value: PeriodType; label: string }[] = [
     { value: 'WEEKLY', label: 'Weekly' },
