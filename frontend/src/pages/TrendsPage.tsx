@@ -1,5 +1,6 @@
 // frontend/src/pages/TrendsPage.tsx
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { dashboardApi } from '../api/dashboard'
 import { periodsApi, type ReportingPeriod } from '../api/periods'
 import {
@@ -23,30 +24,23 @@ const FALLBACK = ['#4f46e5', '#059669', '#d97706', '#dc2626', '#7c3aed', '#0891b
 
 export default function TrendsPage() {
   const [periodType, setPeriodType] = useState<PeriodType>('WEEKLY')
-  const [rows, setRows] = useState<TrendRow[]>([])
-  const [periods, setPeriods] = useState<ReportingPeriod[]>([])
-  const [loading, setLoading] = useState(true)
   const [mode, setMode] = useState<'area' | 'line'>('area')
   const [hidden, setHidden] = useState<Set<string>>(new Set())
 
-  const fetchTrends = useCallback(async () => {
-    setLoading(true)
-    try {
-      const [trendRes] = await Promise.all([
-        dashboardApi.getTrends({ period_type: periodType }),
-      ])
-      const data = Array.isArray(trendRes.data) ? trendRes.data : (trendRes.data?.results || [])
-      setRows(data)
-    } catch (err) { console.error(err) }
-    finally { setLoading(false) }
-  }, [periodType])
+  // Periods list — cached per periodType, rarely changes.
+  useQuery({
+    queryKey: ['trends-periods', periodType],
+    queryFn: async () => (await periodsApi.list({ period_type: periodType, page_size: 50 })).data.results as ReportingPeriod[],
+  })
 
-  useEffect(() => {
-    periodsApi.list({ period_type: periodType, page_size: 50 })
-      .then(r => setPeriods(r.data.results || []))
-      .catch(() => {})
-    fetchTrends()
-  }, [periodType, fetchTrends])
+  const { data: rowsData, isLoading: loading, refetch } = useQuery({
+    queryKey: ['trends', periodType],
+    queryFn: async () => {
+      const trendRes = await dashboardApi.getTrends({ period_type: periodType })
+      return (Array.isArray(trendRes.data) ? trendRes.data : (trendRes.data?.results || [])) as TrendRow[]
+    },
+  })
+  const rows = rowsData ?? []
 
   // Pivot rows [{period_label, department_name, achievement}] into recharts shape:
   // [{ period: 'Week 1', HR: 92, Finance: 78 }, ...] with one key per department.
@@ -127,7 +121,7 @@ export default function TrendsPage() {
           <h1 className="text-2xl font-bold tracking-tight text-[hsl(var(--text-primary))]">Performance Trends</h1>
           <p className="text-sm text-[hsl(var(--text-tertiary))] mt-0.5">Achievement over time by department</p>
         </div>
-        <button onClick={fetchTrends} className="btn btn-ghost text-sm" disabled={loading}>
+        <button onClick={() => refetch()} className="btn btn-ghost text-sm" disabled={loading}>
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
         </button>
       </div>

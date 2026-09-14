@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+﻿import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { periodsApi, type ReportingPeriod } from '../api/periods'
 import Modal from '../components/shared/Modal'
 import { Plus, Lock, Unlock, Play, RefreshCw, Clock } from 'lucide-react'
@@ -21,8 +22,6 @@ const deriveDates = (type: string, year: number, num: number) => {
 }
 
 export default function PeriodsPage() {
-  const [periods, setPeriods] = useState<ReportingPeriod[]>([])
-  const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [filterType, setFilterType] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
@@ -32,18 +31,17 @@ export default function PeriodsPage() {
   const [formErrors, setFormErrors] = useState<Record<string,string>>({})
   const [saving, setSaving] = useState(false)
 
-  const fetchPeriods = async () => {
-    setLoading(true)
-    try {
+  const { data: periodsData, isLoading: loading, refetch } = useQuery({
+    queryKey: ['periods', filterType, filterStatus],
+    queryFn: async () => {
       const params: Record<string, any> = { page_size: 100 }
       if (filterType) params.period_type = filterType
       if (filterStatus) params.status = filterStatus
       const res = await periodsApi.list(params)
-      setPeriods(res.data.results)
-    } catch (err) { console.error(err) } finally { setLoading(false) }
-  }
-
-  useEffect(() => { fetchPeriods() }, [filterType, filterStatus])
+      return res.data.results as ReportingPeriod[]
+    },
+  })
+  const periods = periodsData || []
 
   const validate = () => {
     const e: Record<string,string> = {}
@@ -62,7 +60,7 @@ export default function PeriodsPage() {
       await periodsApi.create({ label: form.period_label, period_type: form.period_type, reporting_year: form.reporting_year, week_number: form.week_number, month: form.month, quarter: form.quarter, start_date: dates.start, end_date: dates.end })
       setMessage({ type: 'success', text: 'Period created' })
       setShowForm(false)
-      fetchPeriods()
+      refetch()
     } catch (err: any) { setMessage({ type: 'error', text: err.response?.data?.errors?.[0] || 'Failed' }) }
     finally { setSaving(false) }
   }
@@ -73,7 +71,7 @@ export default function PeriodsPage() {
       if (action === 'open') await periodsApi.open(period.id)
       else if (action === 'lock') await periodsApi.lock(period.id)
       else await periodsApi.reopen(period.id, 'Reopened')
-      fetchPeriods()
+      refetch()
     } catch (err: any) { setMessage({ type: 'error', text: 'Action failed' }) }
     finally { setActionLoading(null) }
   }
@@ -90,12 +88,12 @@ export default function PeriodsPage() {
       <div className="flex gap-3 items-center">
         <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="input-field border w-40"><option value="">All Types</option><option value="WEEKLY">Weekly</option><option value="MONTHLY">Monthly</option><option value="QUARTERLY">Quarterly</option><option value="ANNUAL">Annual</option></select>
         <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="input-field border w-40"><option value="">All Statuses</option><option value="OPEN">Open</option><option value="LOCKED">Locked</option></select>
-        <button onClick={fetchPeriods} className="btn btn-ghost"><RefreshCw className="h-4 w-4" /></button>
+        <button onClick={() => refetch()} className="btn btn-ghost"><RefreshCw className="h-4 w-4" /></button>
       </div>
 
       <Modal open={showForm} onClose={() => setShowForm(false)} title="Create Reporting Period" footer={<>
         <button onClick={() => setShowForm(false)} style={{ padding:'10px 18px',borderRadius:10,border:'none',background:'#f3f4f6',cursor:'pointer',fontSize:14 }}>Cancel</button>
-        <button onClick={handleCreate} disabled={saving} style={{ padding:'10px 18px',borderRadius:10,border:'none',background:'#4f46e5',color:'white',cursor:'pointer',fontSize:14,fontWeight:500 }}>{saving?'Creating�':'Create Period'}</button>
+        <button onClick={handleCreate} disabled={saving} style={{ padding:'10px 18px',borderRadius:10,border:'none',background:'#4f46e5',color:'white',cursor:'pointer',fontSize:14,fontWeight:500 }}>{saving?'Creating…':'Create Period'}</button>
       </>}>
         <div style={{ display:'flex',flexDirection:'column',gap:16 }}>
           <div>
@@ -119,18 +117,18 @@ export default function PeriodsPage() {
             {form.period_type==='QUARTERLY' && <div><label style={{ display:'block',fontSize:13,fontWeight:500,marginBottom:4 }}>Quarter</label><select value={form.quarter} onChange={(e) => setForm(p=>({...p,quarter:parseInt(e.target.value)}))} style={inputS}>{[1,2,3,4].map(q=><option key={q} value={q}>Q{q}</option>)}</select></div>}
           </div>
           <div style={{ padding:10,backgroundColor:'#f9fafb',borderRadius:10,fontSize:13,color:'#6b7280' }}>
-            Dates: {deriveDates(form.period_type, form.reporting_year, form.week_number||form.month||form.quarter||1).start} ? {deriveDates(form.period_type, form.reporting_year, form.week_number||form.month||form.quarter||1).end}
+            Dates: {deriveDates(form.period_type, form.reporting_year, form.week_number||form.month||form.quarter||1).start} → {deriveDates(form.period_type, form.reporting_year, form.week_number||form.month||form.quarter||1).end}
           </div>
         </div>
       </Modal>
 
-      {loading ? <div className="card p-8 text-center text-gray-500">Loading�</div> : periods.length===0 ? <div className="card p-12 text-center text-gray-500"><p className="mb-2">No periods found.</p><button onClick={()=>setShowForm(true)} className="btn btn-primary">Create your first period</button></div> : (
+      {loading ? <div className="card p-8 text-center text-gray-500">Loading…</div> : periods.length===0 ? <div className="card p-12 text-center text-gray-500"><p className="mb-2">No periods found.</p><button onClick={()=>setShowForm(true)} className="btn btn-primary">Create your first period</button></div> : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {periods.map(period => (
             <div key={period.id} className="card p-5">
               <div className="flex items-start justify-between mb-3"><div className="flex items-center gap-2"><Clock className="h-4 w-4 text-gray-400" /><span className="text-xs font-medium text-gray-500 uppercase">{period.period_type_display}</span></div><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[period.status]||'bg-gray-100'}`}>{period.status_display}</span></div>
               <h3 className="font-semibold text-lg mb-1">{period.period_label}</h3>
-              <p className="text-sm text-gray-500 mb-3">{period.start_date} ? {period.end_date}</p>
+              <p className="text-sm text-gray-500 mb-3">{period.start_date} → {period.end_date}</p>
               <div className="flex gap-2 pt-2 border-t">
                 {period.status==='DRAFT' && <button onClick={()=>handleAction(period,'open')} disabled={actionLoading===period.id} className="flex-1 btn bg-blue-500 text-white text-xs py-1.5"><Play className="h-3 w-3" /> Open</button>}
                 {(period.status==='OPEN'||period.status==='SUBMITTED') && <button onClick={()=>handleAction(period,'lock')} disabled={actionLoading===period.id} className="flex-1 btn bg-red-500 text-white text-xs py-1.5"><Lock className="h-3 w-3" /> Lock</button>}
@@ -143,5 +141,3 @@ export default function PeriodsPage() {
     </div>
   )
 }
-
-

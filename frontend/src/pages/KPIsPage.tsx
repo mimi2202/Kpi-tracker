@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+﻿import { useState, useEffect, useRef, useCallback } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { createPortal } from 'react-dom'
 import { apiClient } from '../api/client'
 import { kpisApi } from '../api/kpis'
@@ -18,9 +19,6 @@ const inputS = {
 } as const
 
 export default function KPIsPage() {
-  const [kpis, setKpis] = useState<KPI[]>([])
-  const [departments, setDepartments] = useState<Department[]>([])
-  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filterDept, setFilterDept] = useState('')
   const [filterFreq, setFilterFreq] = useState('')
@@ -41,31 +39,29 @@ export default function KPIsPage() {
   }, [])
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current) }, [])
 
-  // Structured filters are applied server-side; free-text search is client-side over the fetched page.
-  const fetchData = async () => {
-    setLoading(true)
-    try {
+  // Departments barely change — cached independently so KPI filter changes
+  // never trigger a redundant department refetch.
+  const { data: departmentsData } = useQuery({
+    queryKey: ['kpi-page-departments'],
+    queryFn: async () => (await departmentsApi.list({ page_size: 100 })).data.results as Department[],
+  })
+  const departments = departmentsData || []
+
+  // Structured filters are applied server-side; free-text search stays client-side over the fetched page.
+  const { data: kpisData, isLoading: loading, refetch } = useQuery({
+    queryKey: ['kpis', filterDept, filterFreq, filterDirection, filterActive],
+    queryFn: async () => {
       const params: Record<string, any> = { page_size: 200 }
       if (filterDept) params.department = filterDept
       if (filterFreq) params.reporting_frequency = filterFreq
       if (filterDirection) params.calculation_direction = filterDirection
       if (filterActive === 'true') params.is_active = true
       if (filterActive === 'false') params.is_active = false
-      const [kpiRes, deptRes] = await Promise.all([
-        kpisApi.list(params),
-        departmentsApi.list({ page_size: 100 }),
-      ])
-      setKpis(kpiRes.data.results)
-      setDepartments(deptRes.data.results)
-    } catch (err) {
-      console.error(err)
-      toast('error', 'Failed to load KPIs')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => { fetchData() }, [filterDept, filterFreq, filterDirection, filterActive])
+      const res = await kpisApi.list(params)
+      return res.data.results as KPI[]
+    },
+  })
+  const kpis = kpisData || []
 
   // ---- modal open/close ----
   const openCreate = () => { setEditingKpi(null); setForm({ ...EMPTY_FORM }); setShowForm(true) }
@@ -125,7 +121,7 @@ export default function KPIsPage() {
         toast('success', 'KPI created')
       }
       closeModal()
-      fetchData()
+      refetch()
     } catch (err: any) {
       toast('error', err.response?.data?.errors?.[0] || 'Failed to save KPI')
     } finally {
@@ -135,11 +131,11 @@ export default function KPIsPage() {
 
   const handleArchive = async (kpi: KPI) => {
     if (!confirm(`Archive "${kpi.name}"?`)) return
-    try { await kpisApi.archive(kpi.id); fetchData() }
+    try { await kpisApi.archive(kpi.id); refetch() }
     catch { toast('error', 'Archive failed') }
   }
   const handleRestore = async (kpi: KPI) => {
-    try { await kpisApi.restore(kpi.id); fetchData() }
+    try { await kpisApi.restore(kpi.id); refetch() }
     catch { toast('error', 'Restore failed') }
   }
 
@@ -196,7 +192,7 @@ export default function KPIsPage() {
           <select value={filterActive} onChange={e => setFilterActive(e.target.value)} className="input-field border w-36">
             <option value="">All Status</option><option value="true">Active</option><option value="false">Archived</option>
           </select>
-          <button onClick={fetchData} className="btn btn-ghost text-sm">Refresh</button>
+          <button onClick={() => refetch()} className="btn btn-ghost text-sm">Refresh</button>
         </div>
       </div>
 
@@ -338,7 +334,3 @@ export default function KPIsPage() {
     </div>
   )
 }
-
-
-
-
