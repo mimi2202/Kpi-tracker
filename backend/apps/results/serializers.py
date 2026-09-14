@@ -2,6 +2,11 @@
 from rest_framework import serializers
 from .models import KPIResult, KPIResultVersion
 
+# Statuses where editing actual_value/notes means "this needs to go through
+# review again" — the previous submission/approval/return no longer applies
+# to whatever the new value turns out to be.
+REVIEWED_STATUSES = {"SUBMITTED", "RETURNED", "FULLY_APPROVED"}
+
 
 class KPIResultVersionSerializer(serializers.ModelSerializer):
     changed_by_name = serializers.CharField(source="changed_by.full_name", read_only=True)
@@ -47,6 +52,38 @@ class KPIResultSerializer(serializers.ModelSerializer):
             "submitted_date", "reviewed_date", "review_comment", "version_number",
             "created_at", "updated_at",
         ]
+
+    def update(self, instance, validated_data):
+        """Editing actual_value or notes on a result that's already been
+        submitted, approved, or returned reverts it to DRAFT and clears the
+        prior submission/review decision — the person reviewing it approved
+        or returned a DIFFERENT value, so that decision no longer applies
+        once the value changes. The caller (the view) checks the
+        `_reverted_to_draft` flag this sets on the returned instance to
+        decide whether to notify the reviewers that this KPI needs another
+        look.
+        """
+        was_reviewed = instance.submission_status in REVIEWED_STATUSES
+        touches_value_or_notes = "actual_value" in validated_data or "notes" in validated_data
+
+        instance = super().update(instance, validated_data)
+
+        if touches_value_or_notes and was_reviewed:
+            instance.submission_status = "DRAFT"
+            instance.submitted_by = None
+            instance.submitted_date = None
+            instance.reviewed_by = None
+            instance.reviewed_date = None
+            instance.review_comment = ""
+            instance.save(update_fields=[
+                "submission_status", "submitted_by", "submitted_date",
+                "reviewed_by", "reviewed_date", "review_comment",
+            ])
+            instance._reverted_to_draft = True
+        else:
+            instance._reverted_to_draft = False
+
+        return instance
 
 
 class KPIResultEntrySerializer(serializers.ModelSerializer):

@@ -69,24 +69,32 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
 
   useEffect(() => { fetchResults() }, [fetchResults])
 
-  const isLocked = (status?: string) => status === 'SUBMITTED' || status === 'FULLY_APPROVED' || status === 'LOCKED'
+  // Only a genuinely final LOCKED status (period closed) should stop editing.
+  // Submitted/Approved/Returned results can still be edited — doing so reverts
+  // the result to DRAFT and clears any prior review decision (backend-enforced).
+  const isLocked = (status?: string) => status === 'LOCKED'
+  const wasUnderReview = (status?: string) => status === 'SUBMITTED' || status === 'FULLY_APPROVED' || status === 'RETURNED'
 
   const handleSave = async (resultId: string) => {
     setSaving(resultId)
     setMessage(null)
     try {
+      const wasReviewed = wasUnderReview(results.find(r => r.id === resultId)?.submission_status)
       const val = editValues[resultId]
       await resultsApi.update(resultId, {
         actual_value: val !== '' && val !== undefined ? Number(val) : null,
         notes: editNotes[resultId] || '',
       })
-      setMessage({ type: 'success', text: 'Saved' })
+      setMessage({
+        type: 'success',
+        text: wasReviewed ? 'Saved — this KPI reverted to Draft and needs to be resubmitted for review.' : 'Saved',
+      })
       fetchResults()
     } catch (err: any) {
       setMessage({ type: 'error', text: err.response?.data?.errors?.[0] || err.response?.data?.detail || 'Save failed' })
     } finally {
       setSaving(null)
-      setTimeout(() => setMessage(null), 3000)
+      setTimeout(() => setMessage(null), 4000)
     }
   }
 
@@ -110,7 +118,7 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
   const atRisk = results.filter(r => r.rag_status === 'AT_RISK').length
   const offTrack = results.filter(r => r.rag_status === 'OFF_TRACK').length
   // Only DRAFT/RETURNED rows are actually eligible to submit — matches what the backend accepts.
-  const eligibleToSubmit = results.filter(r => r.actual_value != null && !isLocked(r.submission_status)).length
+  const eligibleToSubmit = results.filter(r => r.actual_value != null && !isLocked(r.submission_status) && r.submission_status !== 'SUBMITTED' && r.submission_status !== 'FULLY_APPROVED').length
 
   return (
     <div className="space-y-6">
@@ -207,6 +215,7 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
                           className="input-field border w-24 text-center"
                           placeholder="—"
                           disabled={locked}
+                          title={wasUnderReview(result.submission_status) ? 'Editing will revert this KPI to Draft and require resubmission' : undefined}
                         />
                       </td>
                       <td className="text-sm font-medium">

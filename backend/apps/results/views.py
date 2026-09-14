@@ -55,7 +55,13 @@ class KPIResultViewSet(viewsets.ModelViewSet):
         u = self.request.user
         if obj.responsible_person_id != u.id and u.role not in [Role.ADMIN, Role.TEAM_LEADER]:
             raise PermissionDenied("You can only edit your own results.")
-        serializer.save()
+        instance = serializer.save()
+        # The serializer flags this when editing actual_value/notes reverted
+        # an already-submitted/approved/returned result back to DRAFT — the
+        # prior review decision no longer applies to the new value, so the
+        # reviewers who'd need to look at it again should hear about it.
+        if getattr(instance, "_reverted_to_draft", False):
+            self._notify_reverted_to_draft(instance, u)
 
     # ---- shared row-generation helper ----
     @staticmethod
@@ -218,10 +224,18 @@ class KPIResultViewSet(viewsets.ModelViewSet):
             link = f"/kpi-review/{result.id}"
             submitter_name = result.responsible_person.full_name if result.responsible_person else "a member"
 
+            # Track who's already been notified for this submission, so an
+            # admin who also happens to be this department's team leader
+            # only gets one notification instead of two for the same event.
+            notified_user_ids = set()
+
             team_leaders = UserDepartment.objects.filter(
                 department=dept, is_department_head=True
             ).select_related("user")
             for tl in team_leaders:
+                if tl.user_id in notified_user_ids:
+                    continue
+                notified_user_ids.add(tl.user_id)
                 Notification.objects.create(
                     user=tl.user,
                     notification_type=NotificationType.KPI_SUBMITTED,
@@ -238,12 +252,19 @@ class KPIResultViewSet(viewsets.ModelViewSet):
                     ],
                 )
 
+            # FIX: previously only notified a single admin (.first(), picked
+            # arbitrarily by name ordering) — meaning every other admin in the
+            # org silently never got submission notifications at all. Now
+            # notifies every admin in the organisation.
             if result.responsible_person and result.responsible_person.organisation:
-                admin = User.objects.filter(
+                admins = User.objects.filter(
                     organisation=result.responsible_person.organisation,
                     role=Role.ADMIN,
-                ).first()
-                if admin:
+                )
+                for admin in admins:
+                    if admin.id in notified_user_ids:
+                        continue
+                    notified_user_ids.add(admin.id)
                     Notification.objects.create(
                         user=admin,
                         notification_type=NotificationType.KPI_SUBMITTED,
@@ -263,7 +284,75 @@ class KPIResultViewSet(viewsets.ModelViewSet):
             import traceback
             traceback.print_exc()
 
-    def _notify_decision(self, result, approved, comment):
+    def _notify_reverted_to_draft(self, result, editor):
+        """A previously submitted/approved/returned result was edited and
+        reverted to DRAFT — the reviewers who acted on the old value need to
+        know their decision no longer applies and this needs another look.
+        Same audience and dedup pattern as _notify_submit.
+        """
+        try:
+            from apps.notifications.models import Notification, NotificationType
+            from apps.organisation.models import UserDepartment
+            from core.email import send_notification_email
+
+            dept = result.department
+            link = f"/kpi-review/{result.id}"
+            editor_name = editor.full_name if editor else "someone"
+
+            notified_user_ids = set()
+
+            team_leaders = UserDepartment.objects.filter(
+                department=dept, is_department_head=True
+            ).select_related("user")
+            for tl in team_leaders:
+                if tl.user_id in notified_user_ids:
+                    continue
+                notified_user_ids.add(tl.user_id)
+                Notification.objects.create(
+                    user=tl.user,
+                    notification_type=NotificationType.KPI_SUBMITTED,
+                    title="KPI Edited — Needs Re-review",
+                    message=f"{result.kpi.code} was edited by {editor_name} after review and reverted to Draft",
+                    kpi_result=result,
+                    link=link,
+                )
+                send_notification_email(
+                    tl.user,
+                    subject=f"KPI Needs Re-review: {result.kpi.code}",
+                    message_lines=[
+                        f"{editor_name} edited {result.kpi.code} ({result.kpi.name}) in {dept.name} after it was already reviewed.",
+                        "The previous decision no longer applies — it's back in Draft and will need resubmitting.",
+                    ],
+                )
+
+            if result.responsible_person and result.responsible_person.organisation:
+                admins = User.objects.filter(
+                    organisation=result.responsible_person.organisation,
+                    role=Role.ADMIN,
+                )
+                for admin in admins:
+                    if admin.id in notified_user_ids:
+                        continue
+                    notified_user_ids.add(admin.id)
+                    Notification.objects.create(
+                        user=admin,
+                        notification_type=NotificationType.KPI_SUBMITTED,
+                        title="KPI Edited — Needs Re-review",
+                        message=f"{result.kpi.code} was edited by {editor_name} in {dept.name} after review and reverted to Draft",
+                        kpi_result=result,
+                        link=link,
+                    )
+                    send_notification_email(
+                        admin,
+                        subject=f"KPI Needs Re-review: {result.kpi.code}",
+                        message_lines=[
+                            f"{editor_name} edited {result.kpi.code} ({result.kpi.name}) in {dept.name} after it was already reviewed.",
+                            "The previous decision no longer applies — it's back in Draft and will need resubmitting.",
+                        ],
+                    )
+        except Exception:
+            import traceback
+            traceback.print_exc()
         """Tells the submitter what happened. This is the notification that
         makes the review outcome visible on their end without them needing to
         go dig through the chat room.
