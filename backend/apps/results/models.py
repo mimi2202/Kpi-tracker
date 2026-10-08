@@ -1,7 +1,11 @@
 """KPI Result models."""
+import logging
+
 from django.db import models
 from django.core.validators import MinValueValidator
 from core.mixins import TimestampMixin, UUIDPrimaryKeyMixin
+
+logger = logging.getLogger(__name__)
 
 
 class ResultStatus(models.TextChoices):
@@ -144,6 +148,10 @@ class KPIResult(UUIDPrimaryKeyMixin, TimestampMixin):
     )
     version_number = models.IntegerField(default=1)
 
+    # True when this row is an automatic total of the lower-level results
+    # (weeks -> month -> quarter -> year). See apps/results/rollup.py.
+    is_rollup = models.BooleanField(default=False, db_index=True)
+
     def submit(self, user):
         """Submit result for review."""
         from django.utils import timezone
@@ -195,10 +203,29 @@ class KPIResult(UUIDPrimaryKeyMixin, TimestampMixin):
         return f"{self.kpi.code} - {self.period_label}"
 
     def save(self, *args, **kwargs):
-        """Auto-calculate achievement on save if actual value is provided."""
-        if self.actual_value is not None:
+        """Auto-calculate achievement on save if actual value is provided, then
+        refresh the monthly / quarterly / annual totals this result feeds.
+
+        Flags (set on the instance, not stored):
+          _skip_calc   - don't run _calculate()
+          _skip_rollup - don't trigger a roll-up (used by the roll-up itself
+                         and by bulk import, which rolls up once at the end)
+        """
+        was_adding = self._state.adding
+        if self.actual_value is not None and not getattr(self, "_skip_calc", False):
             self._calculate()
         super().save(*args, **kwargs)
+
+        if (
+            not self.is_rollup
+            and not getattr(self, "_skip_rollup", False)
+            and (not was_adding or self.actual_value is not None)
+        ):
+            try:
+                from apps.results.rollup import rollup_results, rollup_key
+                rollup_results([rollup_key(self)])
+            except Exception:
+                logger.exception("Roll-up failed for result %s", self.pk)
 
     def _calculate(self):
         """Run calculation engine on this result."""

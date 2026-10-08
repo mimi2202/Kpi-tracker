@@ -55,6 +55,11 @@ class KPIResultViewSet(viewsets.ModelViewSet):
         u = self.request.user
         if obj.responsible_person_id != u.id and u.role not in [Role.ADMIN, Role.TEAM_LEADER]:
             raise PermissionDenied("You can only edit your own results.")
+        if obj.is_rollup:
+            raise PermissionDenied(
+                "This is an automatic total of the weekly/monthly results below it. "
+                "Edit the underlying results instead."
+            )
         instance = serializer.save()
         # The serializer flags this when editing actual_value/notes reverted
         # an already-submitted/approved/returned result back to DRAFT — the
@@ -140,6 +145,9 @@ class KPIResultViewSet(viewsets.ModelViewSet):
                     if result.responsible_person_id != request.user.id and request.user.role not in [Role.ADMIN, Role.TEAM_LEADER]:
                         errors.append({"id": result_id, "error": "You can only edit your own results."})
                         continue
+                    if result.is_rollup:
+                        errors.append({"id": result_id, "error": "Automatic total, edit the underlying results."})
+                        continue
                     if result.submission_status == ResultStatus.LOCKED:
                         errors.append({"id": result_id, "error": "Result is locked."})
                         continue
@@ -162,6 +170,9 @@ class KPIResultViewSet(viewsets.ModelViewSet):
                         responsible_person=request.user,
                         defaults=self._row_defaults(kpi, period),
                     )
+                    if result.is_rollup:
+                        errors.append({"item": item, "error": "Automatic total, edit the underlying results."})
+                        continue
                     if actual_value is not None:
                         result.actual_value = Decimal(str(actual_value))
                     if notes:
@@ -180,6 +191,8 @@ class KPIResultViewSet(viewsets.ModelViewSet):
         result = self.get_object()
         if result.responsible_person != request.user and request.user.role not in [Role.ADMIN, Role.TEAM_LEADER]:
             return Response({"success": False, "error": "Not authorized."}, status=403)
+        if result.is_rollup:
+            return Response({"success": False, "error": "Automatic totals are not submitted; submit the underlying results."}, status=400)
         try:
             result.submit(request.user)
             self._notify_submit(result, request.user)
@@ -199,7 +212,7 @@ class KPIResultViewSet(viewsets.ModelViewSet):
             results = results.filter(reporting_period_id=period_id)
         else:
             results = results.filter(id__in=result_ids)
-        results = results.filter(submission_status__in=[ResultStatus.DRAFT, ResultStatus.RETURNED])
+        results = results.filter(is_rollup=False, submission_status__in=[ResultStatus.DRAFT, ResultStatus.RETURNED])
 
         submitted = 0
         errors = []

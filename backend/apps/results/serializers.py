@@ -43,14 +43,14 @@ class KPIResultSerializer(serializers.ModelSerializer):
             "root_cause", "due_date", "action_owner",
             "submission_status", "submitted_by", "submitted_by_name",
             "submitted_date", "reviewed_by", "reviewed_by_name", "reviewed_date",
-            "review_comment",
+            "review_comment", "is_rollup",
             "version_number", "versions", "created_at", "updated_at",
         ]
         read_only_fields = [
             "id", "achievement_percentage", "variance", "variance_display",
             "rag_status", "trend_status", "submission_status",
             "submitted_date", "reviewed_date", "review_comment", "version_number",
-            "created_at", "updated_at",
+            "is_rollup", "created_at", "updated_at",
         ]
 
     def update(self, instance, validated_data):
@@ -75,6 +75,7 @@ class KPIResultSerializer(serializers.ModelSerializer):
             instance.reviewed_by = None
             instance.reviewed_date = None
             instance.review_comment = ""
+            instance._skip_rollup = True  # status-only save; the value save already rolled up
             instance.save(update_fields=[
                 "submission_status", "submitted_by", "submitted_date",
                 "reviewed_by", "reviewed_date", "review_comment",
@@ -109,7 +110,7 @@ class KPIResultEntrySerializer(serializers.ModelSerializer):
             "rag_status", "rag_display", "trend_status", "trend_icon",
             "submission_status", "review_comment", "reviewed_by_name",
             "responsible_person", "responsible_name",
-            "notes", "corrective_action",
+            "notes", "corrective_action", "is_rollup",
             "created_at", "updated_at",
         ]
         read_only_fields = [
@@ -118,7 +119,7 @@ class KPIResultEntrySerializer(serializers.ModelSerializer):
             "achievement_percentage", "variance_display",
             "rag_status", "rag_display", "trend_status", "trend_icon",
             "submission_status", "review_comment", "reviewed_by_name",
-            "responsible_name", "created_at", "updated_at",
+            "responsible_name", "is_rollup", "created_at", "updated_at",
         ]
  
     def get_period_label(self, obj):

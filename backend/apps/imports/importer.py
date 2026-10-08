@@ -3,6 +3,7 @@ Same function runs as a dry run for preview and for real on commit,
 so preview and commit can never disagree about what would happen.
 """
 import calendar
+import logging
 import re
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
@@ -13,6 +14,7 @@ from django.db import transaction
 from apps.kpis.models import KPI
 from apps.organisation.models import Department
 from apps.periods.models import ReportingPeriod
+from apps.results.rollup import rollup_key, rollup_results
 
 VALID_DIRECTIONS = {"HIGHER_IS_BETTER", "LOWER_IS_BETTER", "EXACT_TARGET", "RANGE", "BOOLEAN", "MANUAL_SCORE"}
 VALID_FREQUENCIES = {"WEEKLY", "MONTHLY", "QUARTERLY", "ANNUAL"}
@@ -70,6 +72,7 @@ def _import_results(rows, organisation_id, dry_run):
 
     errors, imported, skipped, needs_attention = [], 0, 0, []
     batch = []
+    rollup_keys = set()  # weekly/monthly/quarterly rows touched; rolled up once at the end
     sp = transaction.savepoint()
     # See the matching comment in _import_tracker_results: guards against two
     # rows in the same file targeting the same (kpi, period, responsible_person)
@@ -128,6 +131,9 @@ def _import_results(rows, organisation_id, dry_run):
                 # save() calls _calculate() internally, which can raise for a
                 # KPI whose target is still the auto-created placeholder of 0.
                 # Flag it rather than aborting the whole import over one row.
+                existing._skip_rollup = True
+                if actual_value is not None:
+                    rollup_keys.add(rollup_key(existing))
                 try:
                     existing.save()
                 except ValueError as e:
@@ -180,6 +186,7 @@ def _import_results(rows, organisation_id, dry_run):
                                 f"Set a real target for this KPI in KPI Library."
                             )
                     batch.append(new_result)
+                    rollup_keys.add(rollup_key(new_result))
                     pending_by_key[key] = new_result
 
                     # FIX: Flush batch before memory grows too large
@@ -197,6 +204,14 @@ def _import_results(rows, organisation_id, dry_run):
     if dry_run:
         transaction.savepoint_rollback(sp)
     else:
+        # Refresh monthly / quarterly / annual totals for everything touched.
+        # A failure here must never undo the import itself.
+        if rollup_keys:
+            try:
+                with transaction.atomic():
+                    rollup_results(rollup_keys)
+            except Exception:
+                logging.getLogger(__name__).exception("Roll-up after import failed")
         transaction.savepoint_commit(sp)
 
     return {"total": len(rows), "imported": imported, "skipped": skipped, "errors": errors, "needs_attention": needs_attention}
@@ -440,6 +455,7 @@ def _import_tracker_results(rows, organisation_id, dry_run):
     errors, needs_attention, new_departments, new_kpis, new_periods = [], [], [], [], []
     imported, skipped = 0, 0
     batch = []
+    rollup_keys = set()  # weekly/monthly/quarterly rows touched; rolled up once at the end
     dept_cache, period_cache, kpi_cache = {}, {}, {}
     sp = transaction.savepoint()
     assumed_year_flagged = False
@@ -504,6 +520,9 @@ def _import_tracker_results(rows, organisation_id, dry_run):
             existing = KPIResult.objects.filter(kpi=kpi, reporting_period=period).first()
             if existing:
                 _apply_actual_value(existing, actual_value, actual_was_blank, row["notes"])
+                existing._skip_rollup = True
+                if actual_value is not None:
+                    rollup_keys.add(rollup_key(existing))
                 try:
                     existing.save()
                 except ValueError as e:
@@ -565,6 +584,7 @@ def _import_tracker_results(rows, organisation_id, dry_run):
                                 f"Set a real target for this KPI in KPI Library."
                             )
                     batch.append(new_result)
+                    rollup_keys.add(rollup_key(new_result))
                     pending_by_key[key] = new_result
 
                     if len(batch) >= BATCH_SIZE:
@@ -580,6 +600,14 @@ def _import_tracker_results(rows, organisation_id, dry_run):
     if dry_run:
         transaction.savepoint_rollback(sp)
     else:
+        # Refresh monthly / quarterly / annual totals for everything touched.
+        # A failure here must never undo the import itself.
+        if rollup_keys:
+            try:
+                with transaction.atomic():
+                    rollup_results(rollup_keys)
+            except Exception:
+                logging.getLogger(__name__).exception("Roll-up after import failed")
         transaction.savepoint_commit(sp)
 
     return {
