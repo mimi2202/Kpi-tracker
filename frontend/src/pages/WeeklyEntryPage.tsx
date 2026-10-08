@@ -118,7 +118,7 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
   const atRisk = results.filter(r => r.rag_status === 'AT_RISK').length
   const offTrack = results.filter(r => r.rag_status === 'OFF_TRACK').length
   // Only DRAFT/RETURNED rows are actually eligible to submit — matches what the backend accepts.
-  const eligibleToSubmit = results.filter(r => r.actual_value != null && !isLocked(r.submission_status) && r.submission_status !== 'SUBMITTED' && r.submission_status !== 'FULLY_APPROVED').length
+  const eligibleToSubmit = results.filter(r => !r.is_rollup && r.actual_value != null && !isLocked(r.submission_status) && r.submission_status !== 'SUBMITTED' && r.submission_status !== 'FULLY_APPROVED').length
 
   return (
     <div className="space-y-6">
@@ -196,7 +196,8 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
               </thead>
               <tbody>
                 {results.map(result => {
-                  const locked = isLocked(result.submission_status)
+                  const isRollup = !!result.is_rollup
+                  const locked = isLocked(result.submission_status) || isRollup
                   const badge = result.submission_status ? STATUS_BADGE[result.submission_status] : undefined
                   return (
                     <tr key={result.id} className={result.actual_value == null ? 'bg-yellow-50/30' : ''}>
@@ -215,7 +216,7 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
                           className="input-field border w-24 text-center"
                           placeholder="—"
                           disabled={locked}
-                          title={wasUnderReview(result.submission_status) ? 'Editing will revert this KPI to Draft and require resubmission' : undefined}
+                          title={isRollup ? 'Automatic total of the weekly/monthly results below' : wasUnderReview(result.submission_status) ? 'Editing will revert this KPI to Draft and require resubmission' : undefined}
                         />
                       </td>
                       <td className="text-sm font-medium">
@@ -249,7 +250,11 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
                         />
                       </td>
                       <td>
-                        {badge ? (
+                        {isRollup ? (
+                          <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 999, color: '#475569', backgroundColor: '#e2e8f0' }}>
+                            Auto total
+                          </span>
+                        ) : badge ? (
                           <button
                             onClick={() => navigate(`/kpi-review/${result.id}`)}
                             style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 999, color: badge.color, backgroundColor: badge.bg, border: 'none', cursor: 'pointer' }}
