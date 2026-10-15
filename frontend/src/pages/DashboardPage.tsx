@@ -56,15 +56,33 @@ export default function DashboardPage() {
   const { data: periodsData, isLoading: periodsLoading } = useQuery({
     queryKey: ['periods', periodType],
     queryFn: async () => {
-      const res = await periodsApi.list({ period_type: periodType, status: 'OPEN', page_size: 50 })
+      // All statuses: locked (older) periods must stay viewable on the dashboard.
+      const res = await periodsApi.list({ period_type: periodType, page_size: 200 })
       return res.data.results
     },
   })
-  const periods: ReportingPeriod[] = periodsData || []
+  // Newest first, by start date, so the dropdown always follows the timeline.
+  const periods: ReportingPeriod[] = [...(periodsData || [])].sort((a: any, b: any) =>
+    String(b.start_date || '').localeCompare(String(a.start_date || '')))
+
+  // Default selection = the latest period that actually has results, not
+  // simply the newest (a freshly auto-opened week is empty). Uses the
+  // all-departments trend series, which the trend card shares via the cache.
+  const { data: allTrend, isLoading: defaultTrendLoading } = useQuery({
+    queryKey: ['dashboard-trend', periodType, ''],
+    queryFn: async () => {
+      const res = await dashboardApi.getTrends({ period_type: periodType })
+      return (Array.isArray(res.data) ? res.data : []) as TrendDataPoint[]
+    },
+    placeholderData: keepPreviousData,
+  })
+  const labelsWithData = new Set((allTrend || []).filter((t: any) => t.achievement != null).map((t: any) => t.period_label))
+  const latestDataPeriod = periods.find(p => labelsWithData.has(p.period_label))
 
   // Keep selectedPeriodId in sync with the loaded list without a useEffect:
   // if nothing is selected yet and periods have loaded, fall back to the first one.
-  const effectivePeriodId = selectedPeriodId || periods[0]?.id || ''
+  const effectivePeriodId = selectedPeriodId
+    || (defaultTrendLoading ? '' : (latestDataPeriod?.id || periods[0]?.id || ''))
 
   // === Dashboard data — summary, departments, KPIs — all keyed off
   // periodType + effectivePeriodId + selectedDeptId. React Query caches
@@ -116,7 +134,7 @@ export default function DashboardPage() {
 
   // Skeleton only for the very first load. After that the page stays put and
   // just dims slightly while fresh numbers arrive.
-  const loading = periodsLoading || (!!effectivePeriodId && dashboardPending)
+  const loading = periodsLoading || (!selectedPeriodId && defaultTrendLoading) || (!!effectivePeriodId && dashboardPending)
 
   // Free-tier hosting puts the API to sleep after a quiet spell and the first
   // request can take up to a minute. Say so instead of leaving a blank page.

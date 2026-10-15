@@ -107,6 +107,27 @@ export default function PeriodsPage() {
     finally { setActionLoading(null) }
   }
 
+  // Lock every OPEN week/month/quarter that ended before the current month.
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const monthStartStr = todayStr.slice(0, 8) + '01'
+  const lockable = periods.filter((p: any) =>
+    (p.status === 'OPEN' || p.status === 'SUBMITTED') && String(p.end_date) < monthStartStr)
+  const handleLockOld = async () => {
+    if (!lockable.length) return
+    if (!window.confirm(`Lock ${lockable.length} period(s) that ended before this month? You can reopen any of them later.`)) return
+    setBulkBusy(true)
+    let failed = 0
+    for (const p of lockable) {
+      try { await periodsApi.lock(p.id) } catch { failed++ }
+    }
+    setBulkBusy(false)
+    setMessage(failed
+      ? { type: 'error', text: `${failed} period(s) could not be locked` }
+      : { type: 'success', text: `Locked ${lockable.length} older period(s)` })
+    refetch()
+  }
+
   const actionButton = (period: ReportingPeriod) => {
     const busy = actionLoading === period.id
     if (period.status === 'DRAFT') return <button onClick={() => handleAction(period, 'open')} disabled={busy} className="btn bg-blue-500 text-white text-xs py-1 px-3"><Play className="h-3 w-3" /> Open</button>
@@ -121,7 +142,14 @@ export default function PeriodsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div><h1 className="text-2xl font-bold">Reporting Periods</h1><p className="text-sm text-gray-500 mt-0.5">{periods.length} periods</p></div>
-        <button onClick={() => setShowForm(true)} className="btn btn-primary"><Plus className="h-4 w-4" /> New Period</button>
+        <div className="flex items-center gap-2">
+          {lockable.length > 0 && (
+            <button onClick={handleLockOld} disabled={bulkBusy} className="btn text-xs border border-red-400 text-red-500">
+              <Lock className="h-3.5 w-3.5" /> {bulkBusy ? 'Locking…' : `Lock ${lockable.length} older`}
+            </button>
+          )}
+          <button onClick={() => setShowForm(true)} className="btn btn-primary"><Plus className="h-4 w-4" /> New Period</button>
+        </div>
       </div>
       {message && <div className={`p-3 rounded-lg text-sm ${message.type==='success'?'bg-green-50 text-green-700':'bg-red-50 text-red-700'}`}>{message.text}</div>}
       <div className="flex gap-3 items-center">
