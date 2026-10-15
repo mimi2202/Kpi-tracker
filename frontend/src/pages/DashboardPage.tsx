@@ -1,6 +1,6 @@
 // frontend/src/pages/DashboardPage.tsx
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useState, useEffect } from 'react'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { dashboardApi, type DashboardSummary, type DepartmentScore, type TrendDataPoint } from '../api/dashboard'
@@ -53,7 +53,7 @@ export default function DashboardPage() {
 
   // === Periods query — drives the period dropdown. Auto-selects the first
   // period once loaded, if nothing's selected yet. ===
-  const { data: periodsData } = useQuery({
+  const { data: periodsData, isLoading: periodsLoading } = useQuery({
     queryKey: ['periods', periodType],
     queryFn: async () => {
       const res = await periodsApi.list({ period_type: periodType, status: 'OPEN', page_size: 50 })
@@ -73,26 +73,59 @@ export default function DashboardPage() {
   const dashboardParams: Record<string, any> = { period_type: periodType, period_id: effectivePeriodId }
   if (selectedDeptId) dashboardParams.department_id = selectedDeptId
 
-  const { data: dashboardData, isLoading: loading, refetch } = useQuery({
+  // keepPreviousData: when the key changes (clicking a department card, picking
+  // another period) React Query keeps showing the last result while the new one
+  // loads, instead of dropping to "no data" and rebuilding the whole page.
+  const {
+    data: dashboardData,
+    isPending: dashboardPending,
+    isPlaceholderData: dashboardUpdating,
+    isFetching: dashboardFetching,
+    refetch,
+  } = useQuery({
     queryKey: ['dashboard', periodType, effectivePeriodId, selectedDeptId],
     queryFn: async () => {
-      const [sumRes, deptRes, kpiRes] = await Promise.all([
+      const [sumRes, kpiRes] = await Promise.all([
         dashboardApi.getSummary(dashboardParams),
-        dashboardApi.getDepartments(dashboardParams),
         dashboardApi.getKPIs({ ...dashboardParams, page_size: 200 }),
       ])
       return {
         summary: sumRes.data as DashboardSummary,
-        departments: (Array.isArray(deptRes.data) ? deptRes.data : deptRes.data?.results || []) as DepartmentScore[],
         kpis: (kpiRes.data?.results || kpiRes.data || []) as KPIResult[],
       }
     },
     enabled: !!effectivePeriodId, // don't fire until we actually have a period to query
+    placeholderData: keepPreviousData,
+  })
+
+  // Department cards depend on the period only, NOT on which department is
+  // selected, so clicking a card must not refetch (or blank) them.
+  const { data: departmentsData, isFetching: deptFetching } = useQuery({
+    queryKey: ['dashboard-departments', periodType, effectivePeriodId],
+    queryFn: async () => {
+      const res = await dashboardApi.getDepartments({ period_type: periodType, period_id: effectivePeriodId })
+      return (Array.isArray(res.data) ? res.data : res.data?.results || []) as DepartmentScore[]
+    },
+    enabled: !!effectivePeriodId,
+    placeholderData: keepPreviousData,
   })
 
   const summary = dashboardData?.summary ?? null
-  const departments = dashboardData?.departments ?? []
+  const departments = departmentsData ?? []
   const kpis = dashboardData?.kpis ?? []
+
+  // Skeleton only for the very first load. After that the page stays put and
+  // just dims slightly while fresh numbers arrive.
+  const loading = periodsLoading || (!!effectivePeriodId && dashboardPending)
+
+  // Free-tier hosting puts the API to sleep after a quiet spell and the first
+  // request can take up to a minute. Say so instead of leaving a blank page.
+  const [slowLoad, setSlowLoad] = useState(false)
+  useEffect(() => {
+    if (!loading) { setSlowLoad(false); return }
+    const t = setTimeout(() => setSlowLoad(true), 6000)
+    return () => clearTimeout(t)
+  }, [loading])
 
   // === Trend data — deliberately NOT filtered by effectivePeriodId. The
   // trend widget needs history ACROSS periods of this type (e.g. every
@@ -106,13 +139,15 @@ export default function DashboardPage() {
   const trendParams: Record<string, any> = { period_type: periodType }
   if (selectedDeptId) trendParams.department_id = selectedDeptId
 
-  const { data: trendSeriesData } = useQuery({
+  const { data: trendSeriesData, isFetching: trendFetching } = useQuery({
     queryKey: ['dashboard-trend', periodType, selectedDeptId],
     queryFn: async () => {
       const res = await dashboardApi.getTrends(trendParams)
       return (Array.isArray(res.data) ? res.data : []) as TrendDataPoint[]
     },
+    placeholderData: keepPreviousData,
   })
+  const updating = dashboardUpdating || trendFetching || deptFetching
   const trends = trendSeriesData ?? []
 
   const periodTypes: { value: PeriodType; label: string }[] = [
@@ -152,10 +187,10 @@ export default function DashboardPage() {
   const withData = kpis.filter((k: any) => k.actual_value != null).length
   const pctComplete = totalKpis > 0 ? Math.round((withData / totalKpis) * 100) : 0
   const overview = [
-    { label: 'Total KPIs', value: totalKpis, icon: BarChart3 },
-    { label: 'Departments', value: deptCount, icon: Layers },
-    { label: 'Team Members', value: memberCount, icon: Users },
-    { label: '% Reported', value: `${pctComplete}%`, icon: CheckCircle2 },
+    { label: 'Total KPIs', value: loading ? '—' : totalKpis, icon: BarChart3 },
+    { label: 'Departments', value: loading ? '—' : deptCount, icon: Layers },
+    { label: 'Team Members', value: loading ? '—' : memberCount, icon: Users },
+    { label: '% Reported', value: loading ? '—' : `${pctComplete}%`, icon: CheckCircle2 },
   ]
 
   const quickLinks = [
@@ -179,7 +214,17 @@ export default function DashboardPage() {
       byPeriod[label].sum += t.achievement
       byPeriod[label].n += 1
     }
-    return order.map(label => ({ label, value: byPeriod[label].sum / byPeriod[label].n }))
+    const pts = order.map(label => ({ label, value: byPeriod[label].sum / byPeriod[label].n }))
+    // Make sure the line runs oldest -> newest. If the API rows carry a start
+    // date, sort by it so "last point" always means the latest period.
+    const dateOf = (label: string) => {
+      const row: any = (trends as any[]).find(t => (t.period_label || '') === label)
+      return row?.period_start_date || row?.start_date || row?.period_start || null
+    }
+    if (pts.every(pt => dateOf(pt.label))) {
+      pts.sort((a, b) => String(dateOf(a.label)).localeCompare(String(dateOf(b.label))))
+    }
+    return pts
   })()
 
   const getRAGClass = (status: string) => {
@@ -207,8 +252,8 @@ export default function DashboardPage() {
             {selectedDeptId && <span className="text-[hsl(var(--accent))]"> · Filtered</span>}
           </p>
         </div>
-        <button onClick={() => refetch()} className="btn btn-ghost text-sm" disabled={loading}>
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
+        <button onClick={() => refetch()} className="btn btn-ghost text-sm" disabled={dashboardFetching}>
+          <RefreshCw className={`h-4 w-4 ${dashboardFetching ? 'animate-spin' : ''}`} /> Refresh
         </button>
       </div>
 
@@ -230,7 +275,7 @@ export default function DashboardPage() {
           onChange={(e) => setSelectedPeriodId(e.target.value)}
           className="input-field w-52"
         >
-          {periods.length === 0 && <option value="">No open periods</option>}
+          {periods.length === 0 && <option value="">{periodsLoading ? 'Loading…' : 'No open periods'}</option>}
           {periods.map(p => <option key={p.id} value={p.id}>{p.period_label}</option>)}
         </select>
         <div className="flex items-center gap-1.5">
@@ -252,6 +297,13 @@ export default function DashboardPage() {
           </button>
         )}
       </div>
+
+      {loading && slowLoad && (
+        <div className="card p-4 flex items-center gap-3 text-sm text-[hsl(var(--text-secondary))]">
+          <RefreshCw className="h-4 w-4 animate-spin flex-shrink-0" />
+          Waking the server up. The first load after a quiet spell can take up to a minute.
+        </div>
+      )}
 
       {/* === OVERVIEW METRICS + QUICK LINKS === */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -290,7 +342,7 @@ export default function DashboardPage() {
           ))}
         </div>
       ) : (
-        <>
+        <div className={`space-y-6 transition-opacity duration-200 ${updating ? 'opacity-60' : 'opacity-100'}`}>
           {/* === STAT CARDS === */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 stagger">
             {stats.map(stat => (
@@ -465,17 +517,26 @@ export default function DashboardPage() {
                 })
                 const line = smoothPath(pts)
                 const area = `${line} L${pts[pts.length - 1][0].toFixed(1)},${h - pad} L${pts[0][0].toFixed(1)},${h - pad} Z`
-                const last = trendPoints[trendPoints.length - 1].value
-                const first = trendPoints[0].value
-                const up = last >= first
-                const stroke = up ? 'hsl(var(--status-on-track))' : 'hsl(var(--status-off-track))'
+                // Headline = the SAME period the dropdown/cards are showing, so the
+                // number here can be compared with the department card above.
+                const selIdx = trendPoints.findIndex(p => p.label === currentPeriod?.period_label)
+                const focusIdx = selIdx >= 0 ? selIdx : trendPoints.length - 1
+                const focus = trendPoints[focusIdx]
+                const prev = focusIdx > 0 ? trendPoints[focusIdx - 1] : null
+                const delta = prev ? focus.value - prev.value : null
+                // Colour = how good the value is (same 85 / 75 cut-offs as the team
+                // member cards), NOT whether it went up, so a low value is never green.
+                const stroke = focus.value >= 85 ? 'hsl(var(--status-on-track))' : focus.value >= 75 ? 'hsl(var(--status-at-risk))' : 'hsl(var(--status-off-track))'
                 return (
                   <div>
                     <div className="flex items-baseline gap-3 mb-4">
-                      <span className="text-4xl font-bold tracking-tight">{last.toFixed(1)}%</span>
-                      <span className={`text-sm font-medium ${up ? 'text-emerald-600' : 'text-red-600'}`}>
-                        {up ? '▲' : '▼'} {Math.abs(last - first).toFixed(1)}% vs first period
-                      </span>
+                      <span className="text-4xl font-bold tracking-tight" style={{ color: stroke }}>{focus.value.toFixed(1)}%</span>
+                      <span className="text-sm text-[hsl(var(--text-tertiary))]">{focus.label}</span>
+                      {delta != null && (
+                        <span className={`text-sm font-medium ${delta >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                          {delta >= 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}% vs previous period
+                        </span>
+                      )}
                       <span className="text-xs text-[hsl(var(--text-tertiary))] ml-auto">
                         {trendPoints.length} periods
                       </span>
@@ -483,7 +544,7 @@ export default function DashboardPage() {
                     <svg viewBox={`0 0 ${w} ${h}`} className="w-full" style={{ height: 260 }} preserveAspectRatio="none">
                       <path d={area} fill={stroke} opacity="0.08" />
                       <path d={line} fill="none" stroke={stroke} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-                      {pts.map(([x, y], i) => <circle key={i} cx={x} cy={y} r="3.5" fill={stroke} />)}
+                      {pts.map(([x, y], i) => <circle key={i} cx={x} cy={y} r={i === focusIdx ? 6 : 3} fill={stroke} opacity={i === focusIdx ? 1 : 0.55} />)}
                     </svg>
                     <div className="flex justify-between mt-2 text-xs text-[hsl(var(--text-tertiary))]">
                       <span>{trendPoints[0].label}</span>
@@ -553,7 +614,7 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
-        </>
+        </div>
       )}
     </div>
   )

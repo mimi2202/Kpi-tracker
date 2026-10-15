@@ -1,5 +1,5 @@
 // frontend/src/pages/WeeklyEntryPage.tsx
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { resultsApi } from '../api/results'
@@ -23,7 +23,15 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
   const [editValues, setEditValues] = useState<Record<string, string>>({})
   const [editNotes, setEditNotes] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
+  // Rows the user has changed but not saved yet. One Save button saves them all.
+  const [dirtyIds, setDirtyIds] = useState<Set<string>>(new Set())
+  const dirtyRef = useRef(dirtyIds)
+  dirtyRef.current = dirtyIds
   const [saving, setSaving] = useState<string | null>(null)
+  // Which button just succeeded (a result id, or 'all'); the button reads
+  // "Saved" / "Submitted" for a couple of seconds instead of showing a banner.
+  const [done, setDone] = useState<string | null>(null)
+  const flashDone = (key: string) => { setDone(key); setTimeout(() => setDone(d => (d === key ? null : d)), 2500) }
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => {
@@ -35,14 +43,17 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
       .catch(console.error)
   }, [periodType])
 
-  const fetchResults = useCallback(async () => {
+  // silent = background refresh (after Save/Submit, or the periodic refresh):
+  // no loading screen, no assignment sync, and the values you are typing in
+  // other rows are left alone. Only the first load / manual refresh is full.
+  const fetchResults = useCallback(async (silent = false) => {
     if (!selectedPeriodId || !user?.id) return
-    setLoading(true)
+    if (!silent) setLoading(true)
     try {
       // Ensure this user's assigned rows exist for the selected period FIRST.
       // Idempotent: creates any missing rows, so every period (past or future)
       // self-populates on open — no manual backfill, works for any frequency.
-      await resultsApi.syncMyResults({ period_id: selectedPeriodId }).catch(() => {})
+      if (!silent) await resultsApi.syncMyResults({ period_id: selectedPeriodId }).catch(() => {})
 
       // Then load only THIS user's rows for the period.
       const res = await resultsApi.list({
@@ -57,17 +68,35 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
         if (r.actual_value != null) vals[r.id] = String(r.actual_value)
         notes[r.id] = r.notes || ''
       })
-      setEditValues(vals)
-      setEditNotes(notes)
+      if (silent) {
+        // Background refresh: update rows you have not touched (so a teammate's
+        // or reviewer's change shows up) and leave your unsaved edits alone.
+        const keep = dirtyRef.current
+        setEditValues(prev => { const n = { ...prev }; for (const id of Object.keys(vals)) if (!keep.has(id)) n[id] = vals[id]; return n })
+        setEditNotes(prev => { const n = { ...prev }; for (const id of Object.keys(notes)) if (!keep.has(id)) n[id] = notes[id]; return n })
+      } else {
+        setEditValues(vals)
+        setEditNotes(notes)
+        setDirtyIds(new Set())
+      }
     } catch (err) {
       console.error(err)
-      setMessage({ type: 'error', text: 'Failed to load results' })
+      if (!silent) setMessage({ type: 'error', text: 'Failed to load results' })
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [selectedPeriodId, user?.id])
 
   useEffect(() => { fetchResults() }, [fetchResults])
+
+  // Live-ish updates without websockets: quietly refresh once a minute and
+  // whenever the tab becomes visible again.
+  useEffect(() => {
+    const tick = () => { if (document.visibilityState === 'visible') fetchResults(true) }
+    const id = setInterval(tick, 60_000)
+    document.addEventListener('visibilitychange', tick)
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', tick) }
+  }, [fetchResults])
 
   // Only a genuinely final LOCKED status (period closed) should stop editing.
   // Submitted/Approved/Returned results can still be edited — doing so reverts
@@ -75,36 +104,79 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
   const isLocked = (status?: string) => status === 'LOCKED'
   const wasUnderReview = (status?: string) => status === 'SUBMITTED' || status === 'FULLY_APPROVED' || status === 'RETURNED'
 
-  const handleSave = async (resultId: string) => {
-    setSaving(resultId)
-    setMessage(null)
-    try {
-      const wasReviewed = wasUnderReview(results.find(r => r.id === resultId)?.submission_status)
-      const val = editValues[resultId]
-      await resultsApi.update(resultId, {
-        actual_value: val !== '' && val !== undefined ? Number(val) : null,
-        notes: editNotes[resultId] || '',
-      })
-      setMessage({
-        type: 'success',
-        text: wasReviewed ? 'Saved — this KPI reverted to Draft and needs to be resubmitted for review.' : 'Saved',
-      })
-      fetchResults()
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.response?.data?.errors?.[0] || err.response?.data?.detail || 'Save failed' })
-    } finally {
-      setSaving(null)
-      setTimeout(() => setMessage(null), 4000)
-    }
+  const rowDiffers = (id: string, v: string | undefined, n: string | undefined) => {
+    const r = results.find(x => x.id === id)
+    if (!r) return true
+    const serverVal = r.actual_value != null ? Number(r.actual_value) : null
+    const newVal = v === undefined || v === '' ? null : Number(v)
+    return !(serverVal === newVal && (r.notes || '') === (n || ''))
   }
+  const markDirty = (id: string, differs: boolean) =>
+    setDirtyIds(prev => {
+      if (prev.has(id) === differs) return prev
+      const next = new Set(prev); differs ? next.add(id) : next.delete(id); return next
+    })
+  const editValue = (id: string, v: string) => {
+    setEditValues(prev => ({ ...prev, [id]: v }))
+    markDirty(id, rowDiffers(id, v, editNotes[id]))
+  }
+  const editNote = (id: string, n: string) => {
+    setEditNotes(prev => ({ ...prev, [id]: n }))
+    markDirty(id, rowDiffers(id, editValues[id], n))
+  }
+
+  // One click saves every changed row, like the Assignments page.
+  const handleSaveAll = async () => {
+    const ids = Array.from(dirtyIds)
+    if (ids.length === 0) return
+    setSaving('save')
+    setMessage(null)
+    const failed: string[] = []
+    for (const id of ids) {
+      const val = editValues[id]
+      try {
+        await resultsApi.update(id, {
+          actual_value: val !== '' && val !== undefined ? Number(val) : null,
+          notes: editNotes[id] || '',
+        })
+        markDirty(id, false)
+      } catch {
+        failed.push(results.find(r => r.id === id)?.kpi_code ?? id)
+      }
+    }
+    setSaving(null)
+    if (failed.length === 0) flashDone('save')
+    else {
+      setMessage({ type: 'error', text: `Could not save: ${failed.join(', ')}. Your edits are still here, try Save again.` })
+      setTimeout(() => setMessage(null), 6000)
+    }
+    fetchResults(true)
+  }
+
+  const handleDiscard = () => {
+    const vals: Record<string, string> = {}
+    const notes: Record<string, string> = {}
+    results.forEach(r => { if (r.actual_value != null) vals[r.id] = String(r.actual_value); notes[r.id] = r.notes || '' })
+    setEditValues(vals)
+    setEditNotes(notes)
+    setDirtyIds(new Set())
+  }
+
+  // Warn before closing the tab with unsaved edits.
+  useEffect(() => {
+    if (dirtyIds.size === 0) return
+    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', h)
+    return () => window.removeEventListener('beforeunload', h)
+  }, [dirtyIds.size])
 
   const handleSubmitAll = async () => {
     if (!selectedPeriodId) return
     setSaving('all')
     try {
       await resultsApi.bulkSubmit({ period_id: selectedPeriodId })
-      setMessage({ type: 'success', text: 'Your results submitted for review' })
-      fetchResults()
+      flashDone('all')
+      fetchResults(true)
     } catch (err: any) {
       setMessage({ type: 'error', text: 'Submission failed' })
     } finally {
@@ -136,7 +208,7 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
             <option value="">Select period...</option>
             {periods.map(p => <option key={p.id} value={p.id}>{p.period_label}</option>)}
           </select>
-          <button onClick={fetchResults} className="btn btn-ghost" disabled={loading}>
+          <button onClick={() => fetchResults()} className="btn btn-ghost" disabled={loading}>
             <RefreshCw className="h-4 w-4" />
           </button>
         </div>
@@ -191,7 +263,6 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
                   <th>Trend</th>
                   <th>Notes</th>
                   <th>Review</th>
-                  <th>Save</th>
                 </tr>
               </thead>
               <tbody>
@@ -200,7 +271,7 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
                   const locked = isLocked(result.submission_status) || isRollup
                   const badge = result.submission_status ? STATUS_BADGE[result.submission_status] : undefined
                   return (
-                    <tr key={result.id} className={result.actual_value == null ? 'bg-yellow-50/30' : ''}>
+                    <tr key={result.id} className={result.actual_value == null ? 'bg-yellow-50/30' : ''} style={dirtyIds.has(result.id) ? { backgroundColor: 'rgba(99,102,241,0.08)' } : undefined}>
                       <td className="text-sm text-gray-600">{result.department_name}</td>
                       <td>
                         <div className="text-sm font-medium">{result.kpi_code}</div>
@@ -212,7 +283,7 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
                           type="number"
                           step="any"
                           value={editValues[result.id] ?? ''}
-                          onChange={(e) => setEditValues(prev => ({ ...prev, [result.id]: e.target.value }))}
+                          onChange={(e) => editValue(result.id, e.target.value)}
                           className="input-field border w-24 text-center"
                           placeholder="—"
                           disabled={locked}
@@ -243,7 +314,7 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
                         <input
                           type="text"
                           value={editNotes[result.id] ?? ''}
-                          onChange={(e) => setEditNotes(prev => ({ ...prev, [result.id]: e.target.value }))}
+                          onChange={(e) => editNote(result.id, e.target.value)}
                           className="input-field border w-32 text-sm"
                           placeholder="Note..."
                           disabled={locked}
@@ -266,15 +337,6 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
                           <span className="text-xs text-gray-300">—</span>
                         )}
                       </td>
-                      <td>
-                        <button
-                          onClick={() => handleSave(result.id)}
-                          disabled={saving === result.id || locked}
-                          className="btn btn-primary text-xs py-1.5 px-3"
-                        >
-                          {saving === result.id ? '...' : 'Save'}
-                        </button>
-                      </td>
                     </tr>
                   )
                 })}
@@ -282,16 +344,37 @@ export default function WeeklyEntryPage({ periodType = "WEEKLY" }: { periodType?
             </table>
           </div>
 
-          <div className="flex items-center justify-between p-4 border-t bg-gray-50">
-            <p className="text-sm text-gray-500">{submitted} of {results.length} KPIs completed</p>
-            <button
-              onClick={handleSubmitAll}
-              disabled={saving === 'all' || eligibleToSubmit === 0}
-              className="btn btn-primary"
-            >
-              <Send className="h-4 w-4" />
-              {saving === 'all' ? 'Submitting...' : 'Submit All for Review'}
-            </button>
+          <div className="flex items-center justify-between gap-3 flex-wrap p-4 border-t bg-gray-50">
+            <p className="text-sm text-gray-500">
+              {submitted} of {results.length} KPIs completed
+              {dirtyIds.size > 0 && <span className="ml-3 font-medium text-amber-600">{dirtyIds.size} unsaved</span>}
+            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              {dirtyIds.size > 0 && saving !== 'save' && (
+                <button onClick={handleDiscard} className="btn btn-ghost text-sm">Discard</button>
+              )}
+              {(dirtyIds.size > 0 || done === 'save') && (
+                <button
+                  onClick={handleSaveAll}
+                  disabled={saving === 'save' || dirtyIds.size === 0}
+                  className="btn btn-primary"
+                  style={done === 'save' ? { backgroundColor: 'hsl(var(--status-on-track))', borderColor: 'hsl(var(--status-on-track))', color: '#fff', opacity: 1 } : undefined}
+                >
+                  <Save className="h-4 w-4" />
+                  {saving === 'save' ? '...' : done === 'save' ? '✓ Saved' : `Save changes (${dirtyIds.size})`}
+                </button>
+              )}
+              <button
+                onClick={handleSubmitAll}
+                disabled={saving === 'all' || eligibleToSubmit === 0 || dirtyIds.size > 0}
+                title={dirtyIds.size > 0 ? 'Save your changes first' : undefined}
+                className="btn btn-primary"
+                style={done === 'all' ? { backgroundColor: 'hsl(var(--status-on-track))', borderColor: 'hsl(var(--status-on-track))', color: '#fff', opacity: 1 } : undefined}
+              >
+                <Send className="h-4 w-4" />
+                {saving === 'all' ? 'Submitting...' : done === 'all' ? '✓ Submitted' : 'Submit All for Review'}
+              </button>
+            </div>
           </div>
         </div>
       )}

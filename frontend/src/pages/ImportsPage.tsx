@@ -1,5 +1,7 @@
 ﻿// frontend/src/pages/ImportsPage.tsx
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../api/client'
 import { Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Download, Loader2 } from 'lucide-react'
 
@@ -14,6 +16,8 @@ interface PreviewResult {
   new_departments?: string[]
   new_kpis?: string[]
   new_periods?: string[]
+  start_hint?: { month: number; year: number } | null
+  needs_start?: boolean
 }
 
 function extractErrorMessage(err: any, fallback: string): string {
@@ -34,6 +38,8 @@ interface CommitResult {
   needs_attention?: string[]
 }
 
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
+
 const KIND_LABEL: Record<string, string> = {
   results: 'KPI Results',
   tracker_results: 'KPI Tracker Report',
@@ -43,6 +49,8 @@ const KIND_LABEL: Record<string, string> = {
 }
 
 export default function ImportsPage() {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [step, setStep] = useState(1)
   const [file, setFile] = useState<File | null>(null)
   const [previewing, setPreviewing] = useState(false)
@@ -50,23 +58,41 @@ export default function ImportsPage() {
   const [preview, setPreview] = useState<PreviewResult | null>(null)
   const [result, setResult] = useState<CommitResult | null>(null)
   const [error, setError] = useState('')
+  // Weekly / Monthly Trend sheets have no year (and weekly ones no month), so
+  // the person says which month the sheet starts in and the rest follows.
+  const [startMonth, setStartMonth] = useState(new Date().getMonth() + 1)
+  const [startYear, setStartYear] = useState(new Date().getFullYear())
+  const [startConfirmed, setStartConfirmed] = useState(false)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     if (f) { setFile(f); setError('') }
   }
 
-  const runPreview = async () => {
+  const buildForm = (withStart: boolean) => {
+    const formData = new FormData()
+    formData.append('file', file as File)
+    if (withStart) {
+      formData.append('start_month', String(startMonth))
+      formData.append('start_year', String(startYear))
+    }
+    return formData
+  }
+
+  const runPreview = async (withStart = false) => {
     if (!file) return
     setPreviewing(true)
     setError('')
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-      const res = await apiClient.post('/imports/preview/', formData, {
+      const res = await apiClient.post('/imports/preview/', buildForm(withStart), {
         headers: { 'Content-Type': undefined },
       })
       setPreview(res.data)
+      if (!withStart && res.data.start_hint) {
+        setStartMonth(res.data.start_hint.month)
+        setStartYear(res.data.start_hint.year)
+      }
+      if (withStart) setStartConfirmed(true)
       setStep(2)
     } catch (err: any) {
       setError(extractErrorMessage(err, 'Could not read this file. Check the format and try again.'))
@@ -80,13 +106,14 @@ export default function ImportsPage() {
     setCommitting(true)
     setError('')
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-      const res = await apiClient.post('/imports/commit/', formData, {
+      const res = await apiClient.post('/imports/commit/', buildForm(startConfirmed), {
         headers: { 'Content-Type': undefined },
       })
       setResult(res.data)
       setStep(3)
+      // New results/KPIs/periods exist now: mark every cached page as stale so
+      // Dashboard, KPI Library, Periods etc. show them without a manual reload.
+      queryClient.invalidateQueries()
     } catch (err: any) {
       setError(extractErrorMessage(err, 'Import failed.'))
     } finally {
@@ -95,7 +122,7 @@ export default function ImportsPage() {
   }
 
   const reset = () => {
-    setStep(1); setFile(null); setPreview(null); setResult(null); setError('')
+    setStep(1); setFile(null); setPreview(null); setResult(null); setError(''); setStartConfirmed(false)
   }
 
   const downloadTemplate = (kind: 'results' | 'definitions') => {
@@ -142,7 +169,7 @@ export default function ImportsPage() {
           <div className="flex gap-3 justify-center flex-wrap">
             <button onClick={() => downloadTemplate('results')} className="btn btn-ghost"><Download className="h-4 w-4" /> Results Template</button>
             <button onClick={() => downloadTemplate('definitions')} className="btn btn-ghost"><Download className="h-4 w-4" /> Definitions Template</button>
-            <button onClick={runPreview} disabled={!file || previewing} className="btn btn-primary">
+            <button onClick={() => runPreview(false)} disabled={!file || previewing} className="btn btn-primary">
               {previewing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
               {previewing ? 'Reading…' : 'Next'}
             </button>
@@ -159,6 +186,31 @@ export default function ImportsPage() {
               Detected as <span className="font-medium text-gray-700">{KIND_LABEL[preview.kind] || preview.kind}</span>
             </p>
           </div>
+
+          {preview.start_hint && (
+            <div className={`p-4 rounded-xl mb-6 border ${preview.needs_start ? 'bg-amber-50 border-amber-300' : 'bg-indigo-50 border-indigo-200'}`}>
+              <p className="text-sm font-semibold text-gray-900 mb-1">
+                {preview.needs_start ? 'Which month does this sheet start from?' : `Starting ${MONTH_NAMES[startMonth - 1]} ${startYear}`}
+              </p>
+              <p className="text-xs text-gray-600 mb-3">
+                This sheet has week or month columns with no year. Pick the month its first column belongs to: the first week
+                is the first Monday of that month, and the remaining weeks and months follow in order.
+              </p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <select value={startMonth} onChange={e => { setStartMonth(Number(e.target.value)); setStartConfirmed(false) }} className="rounded-lg border px-3 py-2 text-sm">
+                  {MONTH_NAMES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+                </select>
+                <input type="number" value={startYear} min={2000} max={2100}
+                  onChange={e => { setStartYear(Number(e.target.value)); setStartConfirmed(false) }}
+                  className="rounded-lg border px-3 py-2 text-sm w-24" />
+                <button onClick={() => runPreview(true)} disabled={previewing} className="btn btn-primary text-sm">
+                  {previewing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  {startConfirmed ? 'Update' : 'Use this start'}
+                </button>
+                {startConfirmed && !previewing && <span className="text-xs text-emerald-700">✓ Applied</span>}
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-3 gap-4 mb-6">
             <div className="text-center p-4 bg-gray-50 rounded-xl">
@@ -230,7 +282,8 @@ export default function ImportsPage() {
             <button onClick={reset} className="btn btn-ghost">Back</button>
             <button
               onClick={runCommit}
-              disabled={committing || preview.imported === 0 || preview.kind === 'unknown' || preview.kind === 'empty'}
+              disabled={committing || preview.imported === 0 || preview.kind === 'unknown' || preview.kind === 'empty' || (!!preview.start_hint && !startConfirmed)}
+              title={preview.start_hint && !startConfirmed ? 'Choose the starting month first' : undefined}
               className="btn btn-primary"
             >
               {committing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -275,7 +328,7 @@ export default function ImportsPage() {
           )}
           <div className="flex gap-3 justify-center mt-6">
             <button onClick={reset} className="btn btn-ghost">Import Another</button>
-            <button onClick={() => window.location.href = '/dashboard'} className="btn btn-primary">Go to Dashboard</button>
+            <button onClick={() => navigate('/dashboard')} className="btn btn-primary">Go to Dashboard</button>
           </div>
         </div>
       )}

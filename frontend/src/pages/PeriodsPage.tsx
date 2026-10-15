@@ -2,7 +2,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { periodsApi, type ReportingPeriod } from '../api/periods'
 import Modal from '../components/shared/Modal'
-import { Plus, Lock, Unlock, Play, RefreshCw, Clock } from 'lucide-react'
+import { Plus, Lock, Unlock, Play, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react'
 
 const statusColors: Record<string, string> = {
   DRAFT: 'bg-gray-100 text-gray-600', OPEN: 'bg-blue-100 text-blue-700',
@@ -32,16 +32,47 @@ export default function PeriodsPage() {
   const [saving, setSaving] = useState(false)
 
   const { data: periodsData, isLoading: loading, refetch } = useQuery({
-    queryKey: ['periods', filterType, filterStatus],
+    queryKey: ['periods', filterStatus],
+    refetchOnWindowFocus: true,
+    refetchInterval: 60_000,
     queryFn: async () => {
-      const params: Record<string, any> = { page_size: 100 }
-      if (filterType) params.period_type = filterType
+      const params: Record<string, any> = { page_size: 500 }
       if (filterStatus) params.status = filterStatus
       const res = await periodsApi.list(params)
       return res.data.results as ReportingPeriod[]
     },
   })
   const periods = periodsData || []
+
+  // === Grouping: every week sits inside the month its Monday falls in. This
+  // is worked out from the dates, so it applies to periods that already exist. ===
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const monthKey = (iso: string) => iso.slice(0, 7)
+  const todayKey = new Date().toLocaleDateString('en-CA').slice(0, 7)
+  const monthTitle = (key: string) => new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+  const shortDate = (iso: string) => new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+
+  const monthGroups = (() => {
+    const map = new Map<string, { key: string; monthly?: ReportingPeriod; weeks: ReportingPeriod[] }>()
+    const get = (iso: string) => {
+      const key = monthKey(iso)
+      if (!map.has(key)) map.set(key, { key, weeks: [] })
+      return map.get(key)!
+    }
+    for (const p of periods) {
+      if (p.period_type === 'MONTHLY') get(p.start_date).monthly = p
+      else if (p.period_type === 'WEEKLY') get(p.start_date).weeks.push(p)
+    }
+    const groups = Array.from(map.values())
+    groups.forEach(g => g.weeks.sort((a, b) => a.start_date.localeCompare(b.start_date)))
+    return groups.sort((a, b) => b.key.localeCompare(a.key))
+  })()
+  const otherPeriods = periods
+    .filter(p => p.period_type === 'QUARTERLY' || p.period_type === 'ANNUAL')
+    .filter(p => !filterType || p.period_type === filterType)
+    .sort((a, b) => b.start_date.localeCompare(a.start_date))
+  const showMonths = filterType === '' || filterType === 'MONTHLY'
+  const showOthers = filterType === '' || filterType === 'QUARTERLY' || filterType === 'ANNUAL'
 
   const validate = () => {
     const e: Record<string,string> = {}
@@ -76,6 +107,14 @@ export default function PeriodsPage() {
     finally { setActionLoading(null) }
   }
 
+  const actionButton = (period: ReportingPeriod) => {
+    const busy = actionLoading === period.id
+    if (period.status === 'DRAFT') return <button onClick={() => handleAction(period, 'open')} disabled={busy} className="btn bg-blue-500 text-white text-xs py-1 px-3"><Play className="h-3 w-3" /> Open</button>
+    if (period.status === 'OPEN' || period.status === 'SUBMITTED') return <button onClick={() => handleAction(period, 'lock')} disabled={busy} className="btn bg-red-500 text-white text-xs py-1 px-3"><Lock className="h-3 w-3" /> Lock</button>
+    if (period.status === 'LOCKED' || period.status === 'APPROVED') return <button onClick={() => handleAction(period, 'reopen')} disabled={busy} className="btn bg-orange-500 text-white text-xs py-1 px-3"><Unlock className="h-3 w-3" /> Reopen</button>
+    return null
+  }
+
   const inputS = { width: '100%', border: '1px solid #d1d5db', borderRadius: 10, padding: '10px 14px', fontSize: 14, outline: 'none' } as const
 
   return (
@@ -86,7 +125,7 @@ export default function PeriodsPage() {
       </div>
       {message && <div className={`p-3 rounded-lg text-sm ${message.type==='success'?'bg-green-50 text-green-700':'bg-red-50 text-red-700'}`}>{message.text}</div>}
       <div className="flex gap-3 items-center">
-        <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="input-field border w-40"><option value="">All Types</option><option value="WEEKLY">Weekly</option><option value="MONTHLY">Monthly</option><option value="QUARTERLY">Quarterly</option><option value="ANNUAL">Annual</option></select>
+        <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="input-field border w-40"><option value="">All periods</option><option value="MONTHLY">Months &amp; weeks</option><option value="QUARTERLY">Quarterly</option><option value="ANNUAL">Annual</option></select>
         <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="input-field border w-40"><option value="">All Statuses</option><option value="OPEN">Open</option><option value="LOCKED">Locked</option></select>
         <button onClick={() => refetch()} className="btn btn-ghost"><RefreshCw className="h-4 w-4" /></button>
       </div>
@@ -123,19 +162,64 @@ export default function PeriodsPage() {
       </Modal>
 
       {loading ? <div className="card p-8 text-center text-gray-500">Loading…</div> : periods.length===0 ? <div className="card p-12 text-center text-gray-500"><p className="mb-2">No periods found.</p><button onClick={()=>setShowForm(true)} className="btn btn-primary">Create your first period</button></div> : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {periods.map(period => (
-            <div key={period.id} className="card p-5">
-              <div className="flex items-start justify-between mb-3"><div className="flex items-center gap-2"><Clock className="h-4 w-4 text-gray-400" /><span className="text-xs font-medium text-gray-500 uppercase">{period.period_type_display}</span></div><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[period.status]||'bg-gray-100'}`}>{period.status_display}</span></div>
-              <h3 className="font-semibold text-lg mb-1">{period.period_label}</h3>
-              <p className="text-sm text-gray-500 mb-3">{period.start_date} → {period.end_date}</p>
-              <div className="flex gap-2 pt-2 border-t">
-                {period.status==='DRAFT' && <button onClick={()=>handleAction(period,'open')} disabled={actionLoading===period.id} className="flex-1 btn bg-blue-500 text-white text-xs py-1.5"><Play className="h-3 w-3" /> Open</button>}
-                {(period.status==='OPEN'||period.status==='SUBMITTED') && <button onClick={()=>handleAction(period,'lock')} disabled={actionLoading===period.id} className="flex-1 btn bg-red-500 text-white text-xs py-1.5"><Lock className="h-3 w-3" /> Lock</button>}
-                {(period.status==='LOCKED'||period.status==='APPROVED') && <button onClick={()=>handleAction(period,'reopen')} disabled={actionLoading===period.id} className="flex-1 btn bg-orange-500 text-white text-xs py-1.5"><Unlock className="h-3 w-3" /> Reopen</button>}
+        <div className="space-y-6">
+          {showMonths && (
+            <div className="space-y-3">
+              {monthGroups.map(g => {
+                const isOpen = expanded[g.key] ?? g.key === todayKey
+                const m = g.monthly
+                return (
+                  <div key={g.key} className="card overflow-hidden">
+                    <div className="flex items-center justify-between gap-3 px-4 py-3" style={{ background: 'hsl(var(--surface-ground))' }}>
+                      <button onClick={() => setExpanded(prev => ({ ...prev, [g.key]: !isOpen }))} className="flex items-center gap-2 flex-1 text-left" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit' }}>
+                        {isOpen ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-400" />}
+                        <span className="font-semibold">{monthTitle(g.key)}</span>
+                        <span className="text-xs text-gray-500">{g.weeks.length} week{g.weeks.length === 1 ? '' : 's'}</span>
+                      </button>
+                      <div className="flex items-center gap-2">
+                        {m && <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[m.status]||'bg-gray-100'}`}>{m.status_display}</span>}
+                        {m && actionButton(m)}
+                      </div>
+                    </div>
+                    {isOpen && (
+                      g.weeks.length === 0
+                        ? <p className="p-4 text-sm text-gray-500">No weeks in this month yet.</p>
+                        : (
+                          <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                            {g.weeks.map((w, i) => (
+                              <div key={w.id} className="border rounded-xl p-3" style={{ borderColor: 'hsl(var(--border-subtle))' }}>
+                                <div className="flex items-start justify-between mb-1">
+                                  <span className="font-semibold text-sm">Week {i + 1}</span>
+                                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${statusColors[w.status]||'bg-gray-100'}`}>{w.status_display}</span>
+                                </div>
+                                <p className="text-xs text-gray-500 mb-2">{shortDate(w.start_date)} – {shortDate(w.end_date)}</p>
+                                {actionButton(w)}
+                              </div>
+                            ))}
+                          </div>
+                        )
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {showOthers && otherPeriods.length > 0 && (
+            <div>
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500 mb-3">Quarters &amp; years</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                {otherPeriods.map(period => (
+                  <div key={period.id} className="card p-4">
+                    <div className="flex items-start justify-between mb-2"><span className="text-xs font-medium text-gray-500 uppercase">{period.period_type_display}</span><span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${statusColors[period.status]||'bg-gray-100'}`}>{period.status_display}</span></div>
+                    <h3 className="font-semibold mb-1">{period.period_label}</h3>
+                    <p className="text-xs text-gray-500 mb-3">{period.start_date} → {period.end_date}</p>
+                    {actionButton(period)}
+                  </div>
+                ))}
               </div>
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>

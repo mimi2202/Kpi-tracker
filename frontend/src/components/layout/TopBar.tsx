@@ -2,7 +2,7 @@
 import Avatar from '../shared/Avatar'
 import { useAuthStore } from '../../store/authStore'
 import { applyTheme, getCachedPreference, getEffectiveIsDark, watchSystemTheme, type ThemePreference } from '../../lib/theme'
-import { Bell, Search, Settings, User, LogOut, Key, Palette, Sun, Moon, Building2, Target, ClipboardList, Loader2 } from 'lucide-react'
+import { Menu, Bell, Search, Settings, User, LogOut, Key, Palette, Sun, Moon, Building2, Target, ClipboardList, Loader2 } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 
@@ -19,7 +19,7 @@ const RAG_COLOR: Record<string, string> = {
   NO_DATA: 'hsl(var(--status-no-data))',
 }
 
-export default function TopBar() {
+export default function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
   const [showUserMenu, setShowUserMenu] = useState(false)
@@ -51,9 +51,17 @@ export default function TopBar() {
       useAuthStore.getState().setUser(res.data)
       // Applies the account's saved preference on every full page load, and
       // keeps following the OS live if the preference is 'system'.
-      const pref: ThemePreference = res.data.theme_preference || 'system'
-      setThemePref(pref)
-      applyTheme(pref)
+      // This device's own saved choice wins. Previously the server value was
+      // applied here every time, so if saving the toggle to the server had
+      // failed (or the server still said dark/system), the app showed your
+      // saved theme first and then flipped it once the profile loaded.
+      let localChoice: string | null = null
+      try { localChoice = localStorage.getItem('theme_preference') } catch {}
+      if (!localChoice) {
+        const pref: ThemePreference = res.data.theme_preference || 'system'
+        setThemePref(pref)
+        applyTheme(pref)
+      }
       watchSystemTheme(() => themePrefRef.current)
     }).catch(() => {})
     const i = setInterval(fetchUnreadCount, 30000)
@@ -66,7 +74,12 @@ export default function TopBar() {
     const next: ThemePreference = getEffectiveIsDark(themePrefRef.current) ? 'light' : 'dark'
     setThemePref(next)
     applyTheme(next)
-    try { await apiClient.patch(`/auth/users/${user?.id}/`, { theme_preference: next }) } catch {}
+    // Best effort: keeps the choice for other devices. A failure here must
+    // not undo the local choice, but is logged so it can be diagnosed.
+    const uid = user?.id || useAuthStore.getState().user?.id
+    if (!uid) return
+    try { await apiClient.patch(`/auth/users/${uid}/`, { theme_preference: next }) }
+    catch (e: any) { console.warn('Could not save theme preference to the server', e?.response?.status, e?.response?.data) }
   }
 
   // Debounced global search — waits 300ms after typing stops before querying,
@@ -151,9 +164,12 @@ export default function TopBar() {
   const isDark = getEffectiveIsDark(themePref)
 
   return (
-    <header style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', borderBottom: '1px solid hsl(var(--border-subtle))', backgroundColor: 'hsl(var(--surface-card))', transition: 'background-color 0.3s, border-color 0.3s' }}>
-      <div style={{ width: 40 }} />
-      <div style={{ flex: 1, display: 'flex', justifyContent: 'center', padding: '0 24px' }}>
+    <header style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', borderBottom: '1px solid hsl(var(--border-subtle))', backgroundColor: 'hsl(var(--surface-card))', transition: 'background-color 0.3s, border-color 0.3s' }}>
+      <button onClick={onMenuClick} aria-label="Open menu" className="lg:hidden flex" style={{ padding: 8, marginRight: 4, borderRadius: 10, border: 'none', background: 'transparent', cursor: 'pointer' }}>
+        <Menu size={22} color="hsl(var(--text-secondary))" />
+      </button>
+      <div className="hidden lg:block" style={{ width: 40 }} />
+      <div style={{ flex: 1, display: 'flex', justifyContent: 'center', padding: '0 12px', minWidth: 0 }}>
         <div ref={searchRef} style={{ position: 'relative', width: '100%', maxWidth: 480 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', backgroundColor: 'hsl(var(--surface-ground))', border: '1px solid hsl(var(--border-subtle))', borderRadius: 12, width: '100%' }}>
             {searching ? <Loader2 size={16} className="animate-spin" color="hsl(var(--text-tertiary))" /> : <Search size={16} color="hsl(var(--text-tertiary))" />}

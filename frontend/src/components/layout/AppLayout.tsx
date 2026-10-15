@@ -82,12 +82,13 @@ export default function AppLayout() {
   return (
     <div className="flex h-screen overflow-hidden bg-[hsl(var(--surface-ground))]">
       {mobileOpen && <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setMobileOpen(false)} />}
-      <aside className={`fixed lg:static inset-y-0 left-0 z-50 flex flex-col border-r border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-card))] transition-all duration-300 ${collapsed ? '-translate-x-full lg:translate-x-0 lg:w-[72px]' : 'w-[260px]'} ${mobileOpen ? 'translate-x-0' : ''}`}>
-        <div className="flex h-16 items-center px-4 border-b border-[hsl(var(--border-subtle))]">
+      <aside className={`fixed lg:static inset-y-0 left-0 z-50 flex flex-col border-r border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-card))] transition-all duration-300 w-[260px] ${collapsed ? 'lg:w-[72px]' : ''} ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
+        <div className="flex h-16 items-center justify-between px-4 border-b border-[hsl(var(--border-subtle))]">
           <div className={`flex items-center gap-3 overflow-hidden ${collapsed ? '' : ''}`}>
             {orgLogo ? <img src={orgLogo} alt="" className="h-8 w-8 rounded-lg object-cover flex-shrink-0" /> : <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[hsl(var(--accent))] flex-shrink-0"><Target className="h-4 w-4 text-white" /></div>}
             <div className="overflow-hidden">{!collapsed && <><h1 className="text-sm font-bold truncate">{orgName || "IPS KPI"}</h1><p className="text-[10px] text-[hsl(var(--text-tertiary))]">Performance</p></>}</div>
           </div>
+          <button onClick={() => setMobileOpen(false)} aria-label="Close menu" className="lg:hidden flex h-9 w-9 items-center justify-center rounded-xl hover:bg-[hsl(var(--surface-ground))]"><X className="h-5 w-5 text-[hsl(var(--text-secondary))]" /></button>
         </div>
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-5" style={{ scrollbarWidth: 'none' }}>
           {navGroups.map(group => {
@@ -114,8 +115,8 @@ export default function AppLayout() {
         </div>
       </aside>
       <div className="flex flex-1 flex-col overflow-hidden">
-        <TopBar />
-        <main className="flex-1 overflow-y-auto" style={{ scrollbarWidth: 'none' }}><div className="p-6 animate-fade-in-up"><Outlet /></div></main>
+        <TopBar onMenuClick={() => setMobileOpen(true)} />
+        <main className="flex-1 overflow-y-auto" style={{ scrollbarWidth: 'none' }}><div className="p-4 sm:p-6 animate-fade-in-up"><Outlet /></div></main>
         <ChatWidget />
       </div>
     </div>
