@@ -50,7 +50,7 @@ so importer.py's _import_tracker_results() handles all of them uniformly,
 with no awareness of which sheet shape a given row came from.
 """
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 PERIOD_TYPE_BY_SHEET_KEYWORD = {
     "weekly": "WEEKLY",
@@ -211,7 +211,8 @@ def _classify_history_header_cell(text):
 def _find_trend_period_columns(normalized_headers):
     """Looks for a consistent run of week/month/quarter column headers.
     Returns (period_cols, period_type) where period_cols is a list of
-    (col_idx, ref_date, assumed_year) tuples, or ([], None) if this sheet
+    (col_idx, ref_date, assumed_year, ordinal) tuples (ordinal = the week
+    or month number written in the header, None for quarters), or ([], None) if this sheet
     doesn't look like a wide trend sheet.
     """
     week_cols, month_cols, quarter_cols = [], [], []
@@ -225,7 +226,7 @@ def _find_trend_period_columns(normalized_headers):
             week_no = int(m.group(1))
             try:
                 ref_date = date.fromisocalendar(current_year, week_no, 1)
-                week_cols.append((col_idx, ref_date, True))  # assumed_year=True
+                week_cols.append((col_idx, ref_date, True, week_no))  # assumed_year=True
             except ValueError:
                 pass
             continue
@@ -234,14 +235,14 @@ def _find_trend_period_columns(normalized_headers):
         if m:
             quarter, year = int(m.group(1)), int(m.group(2))
             first_month = (quarter - 1) * 3 + 1
-            quarter_cols.append((col_idx, date(year, first_month, 1), False))
+            quarter_cols.append((col_idx, date(year, first_month, 1), False, None))
             continue
 
         month_key = raw[:3].lower()
         if raw.lower() in MONTH_NUMBER or month_key in MONTH_NUMBER:
             month_no = MONTH_NUMBER.get(raw.lower()) or MONTH_NUMBER[month_key]
             ref_date = date(current_year, month_no, 1)
-            month_cols.append((col_idx, ref_date, True))  # assumed_year=True
+            month_cols.append((col_idx, ref_date, True, month_no))  # assumed_year=True
 
     if week_cols:
         return week_cols, "WEEKLY"
@@ -337,7 +338,8 @@ def _extract_trend_rows(ws, header_row_idx, dept_col, kpi_col, period_cols, peri
 
         kpi_name, target = _split_name_and_inline_target(raw_kpi_name)
 
-        for col_idx, ref_date, assumed_year in period_cols:
+        first_ordinal = next((c[3] for c in period_cols if c[3] is not None), None)
+        for col_idx, ref_date, assumed_year, ordinal in period_cols:
             if col_idx >= len(row):
                 continue
             actual = row[col_idx]
@@ -354,9 +356,59 @@ def _extract_trend_rows(ws, header_row_idx, dept_col, kpi_col, period_cols, peri
                 "period_type": period_type,
                 "period_date": ref_date,
                 "assumed_year": assumed_year,
+                # How far this column sits from the sheet's first period
+                # (in weeks or months). Lets the importer re-anchor the whole
+                # sheet when the user says which month it starts in.
+                "trend_offset": _trend_offset(period_type, ordinal, first_ordinal) if assumed_year else None,
             })
 
     return rows
+
+
+def _trend_offset(period_type, ordinal, first_ordinal):
+    if ordinal is None or first_ordinal is None:
+        return None
+    diff = ordinal - first_ordinal
+    if period_type == "MONTHLY" and diff < 0:
+        diff += 12  # sheet runs across a year end, e.g. Nov, Dec, Jan
+    return diff
+
+
+def trend_start_hint(rows):
+    """If any rows came from a Weekly/Monthly Trend sheet (no year, and for
+    weeks no month either), returns {'month', 'year'} guessed from the first
+    column so the import screen can pre-fill its 'starting month' question.
+    Returns None when every row carries its own full date."""
+    for r in rows:
+        if r.get("assumed_year") and r.get("trend_offset") == 0:
+            d = r["period_date"]
+            return {"month": d.month, "year": d.year}
+    return None
+
+
+def _first_monday_on_or_after(d):
+    return d + timedelta(days=(7 - d.weekday()) % 7)
+
+
+def apply_trend_start(rows, start_month, start_year):
+    """Re-anchors Weekly/Monthly Trend rows to a chosen starting month: the
+    first weekly column becomes the first Monday of that month and later
+    columns follow week by week; monthly columns follow month by month
+    (rolling into the next year after December). Returns new row dicts."""
+    out = []
+    base_monday = _first_monday_on_or_after(date(start_year, start_month, 1))
+    for r in rows:
+        offset = r.get("trend_offset")
+        if r.get("assumed_year") and offset is not None:
+            r = dict(r)
+            if r["period_type"] == "WEEKLY":
+                r["period_date"] = base_monday + timedelta(weeks=offset)
+            else:
+                m = (start_month - 1) + offset
+                r["period_date"] = date(start_year + m // 12, m % 12 + 1, 1)
+            r["assumed_year"] = False
+        out.append(r)
+    return out
 
 
 def _split_name_and_inline_target(raw_name):

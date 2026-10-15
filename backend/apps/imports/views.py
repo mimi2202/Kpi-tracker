@@ -14,6 +14,7 @@ from apps.accounts.models import Role
 from .parsers import parse_file
 from .classifier import classify_rows
 from .importer import import_rows
+from .tracker_parser import trend_start_hint, apply_trend_start
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,29 @@ def _parse_uploaded(request):
         return None, None, Response({"detail": str(e)}, status=400)
 
     kind = forced_kind or classify_rows(rows)
+
+    # Weekly / Monthly Trend sheets carry no year (and weekly ones no month).
+    # The import screen asks for a starting month + year; when they are sent,
+    # every such column is re-anchored from there. Without them the old
+    # behaviour (assume the current year) still applies, and the response
+    # says a start is needed so the screen can ask.
+    start = _read_start(request)
+    hint = trend_start_hint(rows) if kind == "tracker_results" else None
+    if start and hint is not None:
+        rows = apply_trend_start(rows, *start)
+    request._trend_info = {"hint": hint, "provided": bool(start and hint is not None)}
     return rows, kind, None
+
+
+def _read_start(request):
+    try:
+        month = int(request.data.get("start_month"))
+        year = int(request.data.get("start_year"))
+    except (TypeError, ValueError):
+        return None
+    if not (1 <= month <= 12 and 2000 <= year <= 2100):
+        return None
+    return month, year
 
 
 def _run_import_safely(rows, kind, organisation_id, dry_run, request_path):
@@ -86,6 +109,9 @@ class ImportPreviewView(APIView):
 
         result["kind"] = kind
         result["preview_rows"] = rows[:5]
+        info = getattr(request, "_trend_info", {})
+        result["start_hint"] = info.get("hint")
+        result["needs_start"] = info.get("hint") is not None and not info.get("provided")
         return Response(result)
 
 

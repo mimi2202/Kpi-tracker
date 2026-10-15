@@ -106,8 +106,4 @@ def main():
     with transaction.atomic():
         for keep, drop in pairs:
             merge(keep, drop, apply)
-    print("\nDone." if apply else "\nPreview only, nothing changed. Run with --apply to merge.")
-
-
-if __name__ == "__main__":
-    main()
+    print("\nDone." if apply else "\nPreview only, n
