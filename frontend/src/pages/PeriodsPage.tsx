@@ -136,7 +136,7 @@ export default function PeriodsPage() {
     return null
   }
 
-  const inputS = { width: '100%', border: '1px solid #d1d5db', borderRadius: 10, padding: '10px 14px', fontSize: 14, outline: 'none' } as const
+  const inputS = { width: '100%', border: '1px solid hsl(var(--border-subtle))', borderRadius: 10, padding: '10px 14px', fontSize: 14, outline: 'none' } as const
 
   return (
     <div className="space-y-6">
@@ -159,7 +159,7 @@ export default function PeriodsPage() {
       </div>
 
       <Modal open={showForm} onClose={() => setShowForm(false)} title="Create Reporting Period" footer={<>
-        <button onClick={() => setShowForm(false)} style={{ padding:'10px 18px',borderRadius:10,border:'none',background:'#f3f4f6',cursor:'pointer',fontSize:14 }}>Cancel</button>
+        <button onClick={() => setShowForm(false)} style={{ padding:'10px 18px',borderRadius:10,border:'none',background:'hsl(var(--surface-ground))',color:'hsl(var(--text-primary))',border:'1px solid hsl(var(--border-subtle))',cursor:'pointer',fontSize:14 }}>Cancel</button>
         <button onClick={handleCreate} disabled={saving} style={{ padding:'10px 18px',borderRadius:10,border:'none',background:'#4f46e5',color:'white',cursor:'pointer',fontSize:14,fontWeight:500 }}>{saving?'Creating…':'Create Period'}</button>
       </>}>
         <div style={{ display:'flex',flexDirection:'column',gap:16 }}>
@@ -183,7 +183,7 @@ export default function PeriodsPage() {
             {form.period_type==='MONTHLY' && <div><label style={{ display:'block',fontSize:13,fontWeight:500,marginBottom:4 }}>Month</label><select value={form.month} onChange={(e) => setForm(p=>({...p,month:parseInt(e.target.value)}))} style={inputS}>{['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((m,i)=><option key={i+1} value={i+1}>{m}</option>)}</select></div>}
             {form.period_type==='QUARTERLY' && <div><label style={{ display:'block',fontSize:13,fontWeight:500,marginBottom:4 }}>Quarter</label><select value={form.quarter} onChange={(e) => setForm(p=>({...p,quarter:parseInt(e.target.value)}))} style={inputS}>{[1,2,3,4].map(q=><option key={q} value={q}>Q{q}</option>)}</select></div>}
           </div>
-          <div style={{ padding:10,backgroundColor:'#f9fafb',borderRadius:10,fontSize:13,color:'#6b7280' }}>
+          <div style={{ padding:10,backgroundColor:'hsl(var(--surface-ground))',border:'1px solid hsl(var(--border-subtle))',borderRadius:10,fontSize:13,color:'hsl(var(--text-secondary))' }}>
             Dates: {deriveDates(form.period_type, form.reporting_year, form.week_number||form.month||form.quarter||1).start} → {deriveDates(form.period_type, form.reporting_year, form.week_number||form.month||form.quarter||1).end}
           </div>
         </div>

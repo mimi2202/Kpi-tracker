@@ -14,7 +14,7 @@ const EMPTY_FORM = {
 }
 
 const inputS = {
-  width: '100%', border: '1px solid #d1d5db', borderRadius: 10,
+  width: '100%', border: '1px solid hsl(var(--border-subtle))', borderRadius: 10,
   padding: '10px 14px', fontSize: 14, outline: 'none',
 } as const
 
@@ -255,7 +255,7 @@ export default function KPIsPage() {
             style={{ width: '100%', maxWidth: 560, backgroundColor: 'white', borderRadius: 16, boxShadow: '0 20px 60px rgba(0,0,0,0.2)', border: '1px solid #e5e7eb', overflow: 'hidden' }}
             onClick={e => e.stopPropagation()}
           >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f3f4f6' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid hsl(var(--border-subtle))' }}>
               <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0 }}>{editingKpi ? 'Edit KPI' : 'New KPI'}</h2>
               <button onClick={closeModal} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 8 }}><X size={18} color="#6b7280" /></button>
             </div>
@@ -321,8 +321,8 @@ export default function KPIsPage() {
               </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '16px 20px', borderTop: '1px solid #f3f4f6' }}>
-              <button onClick={closeModal} style={{ padding: '10px 18px', borderRadius: 10, border: 'none', background: '#f3f4f6', cursor: 'pointer', fontSize: 14 }}>Cancel</button>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '16px 20px', borderTop: '1px solid hsl(var(--border-subtle))' }}>
+              <button onClick={closeModal} style={{ padding: '10px 18px', borderRadius: 10, border: '1px solid hsl(var(--border-subtle))', background: 'hsl(var(--surface-ground))', color: 'hsl(var(--text-primary))', cursor: 'pointer', fontSize: 14 }}>Cancel</button>
               <button onClick={handleSubmit} disabled={saving} style={{ padding: '10px 18px', borderRadius: 10, border: 'none', background: '#4f46e5', color: 'white', cursor: 'pointer', fontSize: 14, fontWeight: 500 }}>
                 {saving ? 'Saving...' : editingKpi ? 'Save changes' : 'Create KPI'}
               </button>

@@ -516,3 +516,35 @@ div[style*="overflow-y: auto"]::-webkit-scrollbar-thumb:hover {
   border-color: hsl(var(--accent));
   box-shadow: 0 0 0 4px hsl(var(--accent-glow));
 }
+
+/* Theme-aware form controls. Append to the END of src/index.css.
+   Fixes white inputs / pale dropdown options in dark mode, everywhere,
+   including controls that use inline styles. */
+
+:root { color-scheme: light; }
+:root.dark, :root[data-theme="dark"], .dark { color-scheme: dark; }
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+select,
+textarea {
+  background-color: hsl(var(--surface-ground)) !important;
+  color: hsl(var(--text-primary)) !important;
+  border: 1px solid hsl(var(--border-subtle)) !important;
+}
+input::placeholder, textarea::placeholder { color: hsl(var(--text-tertiary)) !important; opacity: 1; }
+input:disabled, select:disabled, textarea:disabled { color: hsl(var(--text-disabled)) !important; opacity: .7; }
+
+/* The opened dropdown list (native popup) */
+select option, select optgroup {
+  background-color: hsl(var(--surface-card));
+  color: hsl(var(--text-primary));
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: hsl(var(--accent)) !important;
+  box-shadow: 0 0 0 3px hsl(var(--accent) / 0.2);
+}
+/* date picker icon readable on dark */
+.dark input[type="date"]::-webkit-calendar-picker-indicator,
+:root[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); opacity: .7; }
