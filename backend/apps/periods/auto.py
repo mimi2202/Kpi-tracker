@@ -17,6 +17,7 @@ import time
 from datetime import date, datetime, timedelta
 
 from django.conf import settings
+from django.db import IntegrityError, transaction
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,31 @@ def _ensure(period_type, lookup_date, build_date=None):
             period.save(update_fields=["status"])
         return period, False
     fields = _build_period_fields(period_type, build_date or lookup_date)
-    return ReportingPeriod.objects.create(period_type=period_type, status="OPEN", **fields), True
+    # An existing period may carry odd dates (imported sheets) so the date
+    # lookup above missed it, yet it already owns this year/month/quarter slot
+    # under a unique constraint. Reuse it instead of inserting a duplicate.
+    slot = {"period_type": period_type, "reporting_year": fields.get("reporting_year")}
+    if period_type == "MONTHLY":
+        slot["month"] = fields.get("month")
+    elif period_type == "QUARTERLY":
+        slot["quarter"] = fields.get("quarter")
+    elif period_type == "WEEKLY":
+        slot["week_number"] = fields.get("week_number")
+    if period_type != "WEEKLY":  # weeks are matched by date above; month/quarter/year by slot
+        existing = ReportingPeriod.objects.filter(**slot).first()
+        if existing is not None:
+            if existing.status == "DRAFT":
+                existing.status = "OPEN"
+                existing.save(update_fields=["status"])
+            return existing, False
+    try:
+        with transaction.atomic():
+            return ReportingPeriod.objects.create(period_type=period_type, status="OPEN", **fields), True
+    except IntegrityError:
+        existing = ReportingPeriod.objects.filter(**slot).first()
+        if existing is None:
+            raise
+        return existing, False
 
 
 def ensure_week(ref_date):
