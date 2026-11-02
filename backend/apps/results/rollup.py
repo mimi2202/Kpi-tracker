@@ -134,12 +134,14 @@ def _recompute(kpi, person_id, dst_type, dst_start, src_type, period_cache):
 
     obj = existing or KPIResult(
         kpi=kpi,
-        department=kpi.department,
         reporting_period=period,
         responsible_person_id=person_id,
-        calculation_direction=kpi.calculation_direction,
-        warning_threshold=kpi.warning_threshold,
     )
+    # Always take these from the KPI, so an edited direction / threshold /
+    # department reaches existing totals and not only newly created ones.
+    obj.department = kpi.department
+    obj.calculation_direction = kpi.calculation_direction
+    obj.warning_threshold = kpi.warning_threshold
     obj.period_type = period.period_type
     obj.period_label = period.label
     obj.period_start_date = period.start_date
@@ -153,13 +155,56 @@ def _recompute(kpi, person_id, dst_type, dst_start, src_type, period_cache):
     obj.is_rollup = True
     obj._skip_rollup = True  # we walk the chain ourselves
 
+    _save_calculated(obj)
+
+
+def _save_calculated(obj):
     try:
         obj.save()
     except ValueError:
         # e.g. HIGHER_IS_BETTER KPI whose target is still the placeholder 0:
-        # keep the total, leave achievement/RAG at their defaults.
+        # keep the value, but don't leave achievement/RAG from an older target.
         obj._skip_calc = True
+        obj.achievement_percentage = None
+        obj.variance = None
+        obj.variance_display = ""
+        obj.rag_status = "NO_DATA"
         obj.save()
+
+
+# KPI fields that every result keeps its own copy of.
+SNAPSHOT_FIELDS = ("target_value", "calculation_direction", "warning_threshold", "department_id")
+
+
+def resync_kpi_results(kpi):
+    """Push an edited KPI definition into its existing results.
+
+    Each KPIResult keeps a snapshot of the KPI's target / direction /
+    threshold, taken when the result was created. Imported KPIs usually start
+    with a placeholder target of 0, so without this an admin fixing the target
+    (or direction, unit...) in KPI Library would see no change anywhere.
+    Locked results are left alone. Roll-up totals are then rebuilt, which also
+    picks up a changed unit (SUM vs AVERAGE).
+    """
+    from apps.results.models import KPIResult, ResultStatus
+
+    results = (
+        KPIResult.objects
+        .filter(kpi_id=kpi.id, is_rollup=False)
+        .exclude(submission_status=ResultStatus.LOCKED)
+    )
+    keys = set()
+    with transaction.atomic():
+        for result in results.iterator():
+            result.target_value = kpi.target_value
+            result.calculation_direction = kpi.calculation_direction
+            result.warning_threshold = kpi.warning_threshold
+            result.department_id = kpi.department_id
+            result._skip_rollup = True  # done once below
+            _save_calculated(result)
+            keys.add(rollup_key(result))
+        rollup_results(keys)
+    return len(keys)
 
 
 def rollup_results(keys):

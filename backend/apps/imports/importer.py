@@ -626,6 +626,7 @@ def _import_tracker_results(rows, organisation_id, dry_run):
 def _import_definitions(rows, organisation_id, dry_run):
     errors, imported, skipped = [], 0, 0
     batch = []
+    updated_codes = set()
     sp = transaction.savepoint()
 
     departments = {d.name.lower(): d for d in Department.objects.filter(organisation_id=organisation_id)}
@@ -676,6 +677,7 @@ def _import_definitions(rows, organisation_id, dry_run):
                 existing_kpi.calculation_direction = direction
                 existing_kpi.reporting_frequency = frequency
                 batch.append(existing_kpi)
+                updated_codes.add(code)
             else:
                 batch.append(KPI(
                     code=code,
@@ -708,6 +710,13 @@ def _import_definitions(rows, organisation_id, dry_run):
             update_fields=["name", "department", "target_value", "unit_type", "custom_unit", "calculation_direction", "reporting_frequency"],
             unique_fields=["code"],
         )
+
+    if updated_codes and not dry_run:
+        # Existing results keep a snapshot of target / direction; refresh them
+        # so the re-imported definitions actually show up in scores.
+        from apps.results.rollup import resync_kpi_results
+        for kpi in KPI.objects.filter(code__in=updated_codes):
+            resync_kpi_results(kpi)
 
     if dry_run:
         transaction.savepoint_rollback(sp)

@@ -51,6 +51,19 @@ class KPIViewSet(OrganisationScopedMixin, viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save()
 
+    # Edits to these change how existing results are scored or rolled up.
+    RESULT_AFFECTING_FIELDS = (
+        "target_value", "calculation_direction", "warning_threshold", "department_id",
+        "unit_type", "custom_unit", "reporting_frequency", "name",
+    )
+
+    def perform_update(self, serializer):
+        before = {f: getattr(serializer.instance, f) for f in self.RESULT_AFFECTING_FIELDS}
+        kpi = serializer.save()
+        if any(getattr(kpi, f) != before[f] for f in self.RESULT_AFFECTING_FIELDS):
+            from apps.results.rollup import resync_kpi_results
+            resync_kpi_results(kpi)
+
     @action(detail=True, methods=["post"])
     def archive(self, request, pk=None):
         kpi = self.get_object()
