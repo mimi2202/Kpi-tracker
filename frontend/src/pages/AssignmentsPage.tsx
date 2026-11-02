@@ -102,7 +102,18 @@ export default function AssignmentsPage() {
     setDraft(kpiId, next)
   }
 
-  const setAll = (kpiId: string, userIds: string[], on: boolean) => setDraft(kpiId, new Set(on ? userIds : []))
+  // Adds / removes every member of the department, leaving anyone else
+  // already assigned to the KPI untouched.
+  const setAll = (kpiId: string, userIds: string[], on: boolean) => {
+    const next = new Set(current(kpiId))
+    for (const id of userIds) on ? next.add(id) : next.delete(id)
+    setDraft(kpiId, next)
+  }
+
+  // Same as setAll, but for every KPI in a department at once.
+  const setAllForKpis = (kpiIds: string[], userIds: string[], on: boolean) => {
+    for (const kpiId of kpiIds) setAll(kpiId, userIds, on)
+  }
 
   // Which KPIs in each department have unsaved changes.
   const dirtyByDept = useMemo(() => {
@@ -226,6 +237,9 @@ export default function AssignmentsPage() {
             const deptMembers = membersByDept.get(departmentId) ?? []
             const dirtyCount = dirtyByDept.get(departmentId)?.length ?? 0
             const saving = savingDept === departmentId
+            const deptKpiIds = group.kpis.map(k => k.id)
+            const deptMemberIds = deptMembers.map(m => m.id)
+            const deptAllOn = deptMembers.length > 0 && deptKpiIds.every(id => deptMemberIds.every(u => current(id).has(u)))
             return (
               <div key={departmentId} className="card overflow-hidden">
                 <div
@@ -241,6 +255,18 @@ export default function AssignmentsPage() {
                     {group.departmentName}
                   </button>
                   <div className="flex items-center gap-2 flex-wrap justify-end">
+                    {deptMembers.length > 0 && !saving && (
+                      <button
+                        onClick={() => setAllForKpis(deptKpiIds, deptMemberIds, !deptAllOn)}
+                        className={chip(deptAllOn) + ' font-semibold'}
+                        title={deptAllOn
+                          ? `Unassign all ${group.departmentName} members from every KPI shown here`
+                          : `Assign all ${group.departmentName} members to every KPI shown here`}
+                      >
+                        {deptAllOn ? <Check className="h-3 w-3 inline mr-1" /> : null}
+                        ALL KPIs
+                      </button>
+                    )}
                     {dirtyCount > 0 && !saving && (
                       <>
                         <span className="text-xs font-medium text-amber-600">{dirtyCount} unsaved</span>
@@ -284,13 +310,15 @@ export default function AssignmentsPage() {
                             <span className="text-sm text-gray-400">No members in this department yet.</span>
                           ) : (
                             <>
-                              <button
-                                onClick={() => setAll(kpi.id, deptMembers.map(m => m.id), !allOn)}
-                                className="text-xs text-indigo-600 hover:text-indigo-700 font-medium mb-2"
-                              >
-                                {allOn ? 'Clear all' : 'Select all'}
-                              </button>
                               <div className="flex flex-wrap gap-2">
+                                <button
+                                  onClick={() => setAll(kpi.id, deptMembers.map(m => m.id), !allOn)}
+                                  className={chip(allOn) + ' font-semibold'}
+                                  title={allOn ? 'Unselect all members of this department' : 'Select all members of this department'}
+                                >
+                                  {allOn ? <Check className="h-3 w-3 inline mr-1" /> : null}
+                                  ALL
+                                </button>
                                 {deptMembers.map(m => {
                                   const on = set.has(m.id)
                                   return (
